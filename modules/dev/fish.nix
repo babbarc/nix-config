@@ -50,25 +50,4 @@
     "fish/functions/fisher.fish".source = "${fisher}/functions/fisher.fish";
     "fish/completions/fisher.fish".source = "${fisher}/completions/fisher.fish";
   };
-
-  # TODO(phase2/chezmoi): fish/{conf.d,functions,themes} content stays in the
-  # dotfiles repo, migrating to chezmoi (migration report SS1.2) -
-  # neutralized here since these sibling-path references broke pure eval
-  # once nix/ became this repo's own root instead of being nested one level
-  # inside dotfiles. nix-path.fish above (PATH glue) is unaffected - it's
-  # inline text, not a dotfiles-repo reference, and stays nix-managed per the
-  # report's own split-module recommendation for this file.
-  # xdg.configFile = {
-  #   "fish/conf.d/dotfiles-env.fish".source = ../../../fish/conf.d/dotfiles-env.fish;
-  #   "fish/conf.d/fish_frozen_theme.fish".source = ../../../fish/conf.d/fish_frozen_theme.fish;
-  #   "fish/conf.d/fish_frozen_key_bindings.fish".source = ../../../fish/conf.d/fish_frozen_key_bindings.fish;
-  #   "fish/functions/fish_greeting.fish".source = ../../../fish/functions/fish_greeting.fish;
-  #   "fish/functions/joy-console.fish".source = ../../../fish/functions/joy-console.fish;
-  #   "fish/functions/rgf.fish".source = ../../../fish/functions/rgf.fish;
-  #   "fish/functions/s.fish".source = ../../../fish/functions/s.fish;
-  #   "fish/themes" = {
-  #     source = ../../../fish/themes;
-  #     recursive = true;
-  #   };
-  # };
 }
