@@ -17,5 +17,6 @@
     ./agent-cli-tools.nix
     ./herdr.nix
     ./pi.nix
+    ./gpg-public-keys.nix
   ];
 }
