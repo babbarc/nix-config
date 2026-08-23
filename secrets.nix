@@ -18,20 +18,21 @@
 ##   own default (age.identityPaths = config.services.openssh.hostKeys,
 ##   unaffected by the laptop/server identity change above).
 ##
-## Example shape (uncomment and adapt - laptop's real agenix public key is
-## shown below for illustration since it's just a public key; server's and
+## Example shape (uncomment and adapt - server's real agenix public key is
+## shown below for illustration since it's just a public key; laptop's and
 ## wsl's own keys still need to be filled in for real as those hosts are
 ## added):
 # let
-#   laptop = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGG9npME6C/jYabHnjnRDgGS2HuF3O67hT/0WUJsWw8h agenix-identity";
-#   server = "ssh-ed25519 AAAA...clef... server-agenix-identity";
+#   laptop = "ssh-ed25519 AAAA...clef... laptop-agenix-identity";
+#   server = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGG9npME6C/jYabHnjnRDgGS2HuF3O67hT/0WUJsWw8h agenix-identity";
 #   wsl = "ssh-ed25519 AAAA...clef... wsl-host-key";
 # in
 # {
 #   "example-secret.age".publicKeys = [ wsl laptop server ];
 # }
 let
-  agenixIdentity = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGG9npME6C/jYabHnjnRDgGS2HuF3O67hT/0WUJsWw8h agenix-identity";
+  server = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGG9npME6C/jYabHnjnRDgGS2HuF3O67hT/0WUJsWw8h agenix-identity";
 in
 {
+  "gpg-server-key.age".publicKeys = [ server ];
 }
