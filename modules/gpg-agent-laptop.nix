@@ -5,11 +5,17 @@
   # (modules/dev/gpg-agent.nix), and this module layers the laptop's
   # additional desktop-secret-service pieces on top - a Qt pinentry (laptop
   # has a display server; server/wsl use pinentry-curses instead, set
-  # directly in their own host files) and pass-secret-service, so apps that
-  # expect a freedesktop Secret Service can read the captain's `pass` store.
+  # directly in their own host files) and gnome-keyring, so apps that expect
+  # a freedesktop Secret Service have one to talk to.
   services.gpg-agent.pinentry.package = pkgs.pinentry-qt;
 
-  services.pass-secret-service.enable = true;
+  # Secrets component only - never "pkcs11" or "ssh" unless asked. Leaving
+  # this list empty would start gnome-keyring-daemon's own default component
+  # set instead, which is not what's wanted here: SSH is gpg-agent's job
+  # (see enableSshSupport above and the socket-masking below), not
+  # gnome-keyring's.
+  services.gnome-keyring.enable = true;
+  services.gnome-keyring.components = [ "secrets" ];
 
   # gpg-agent's own ssh support (enableSshSupport, set in
   # modules/dev/gpg-agent.nix) only wires up gpg-agent's ssh.socket - it

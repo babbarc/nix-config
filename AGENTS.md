@@ -98,15 +98,19 @@ to `~/.nix-config` and builds `path:<repo>#<attr>` with no `?dir=nix`. The
 naming choice carried over from before the split (same rationale as the
 Chezmoi cutover section above) - don't "fix" those to match the repo rename.
 
-## Session secrets: gpg-agent, not gnome-keyring
+## Session secrets: gpg-agent is the SSH agent everywhere
 
 `gpg-agent` (`modules/dev/gpg-agent.nix`, imported on all three hosts) is the
-sole SSH-agent/session-secret provider everywhere - no gnome-keyring or
-gcr-ssh-agent daemon is enabled on any host. Laptop additionally layers
-`pass-secret-service` and masks `ssh-agent.socket`/`gcr-ssh-agent.socket`
+sole SSH-agent provider everywhere. Laptop additionally runs gnome-keyring
+for Secret Service only (`services.gnome-keyring.components = [ "secrets" ]`
+- never `"ssh"`, since gpg-agent already owns that role) and masks
+`ssh-agent.socket`/`gcr-ssh-agent.socket` so gcr's separate SSH-agent binary
+(`gcr_4`'s `gcr-ssh-agent`, independent of gnome-keyring-daemon's own
+`--components` flag) can't race gpg-agent for `SSH_AUTH_SOCK`
 (`modules/gpg-agent-laptop.nix`, laptop-only sibling to `wezterm.nix`/
-`sway.nix`/`waybar.nix`); server/wsl set only a curses pinentry directly in
-their own host files. Full rationale: migration report §3.3, decision §5.5.
+`sway.nix`/`waybar.nix`). Server/wsl run no Secret Service at all, just a
+curses pinentry set directly in their own host files. Full rationale:
+migration report §3.3, decision §5.5.
 
 Pinentry is `services.gpg-agent.pinentry.package` (a package) in this repo's
 pinned home-manager - not `pinentryFlavor` (removed) or the flat
