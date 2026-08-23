@@ -35,4 +35,5 @@ let
 in
 {
   "gpg-server-key.age".publicKeys = [ server ];
+  "ssh-server-key.age".publicKeys = [ server ];
 }
