@@ -18,5 +18,6 @@
     ./herdr.nix
     ./pi.nix
     ./gpg-public-keys.nix
+    ./pass-git-sync.nix
   ];
 }

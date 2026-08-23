@@ -75,6 +75,29 @@ The `wsl` host is unaffected by this - its NixOS module still relies on
 not overridden), which wasn't independently re-checked for the same
 permission question.
 
+## pass password-store sync
+
+`modules/dev/pass-git-sync.nix` (imported by all three hosts via
+`modules/dev/default.nix`) auto-syncs the captain's `pass` store
+(`~/.password-store`) after every mutation, via a `post-commit` git hook -
+deliberately not a wrapper around the `pass` binary, since `pass` already
+runs `git commit` internally on every mutating command. The activation only
+wires the hook into a store that's already cloned onto the host; it never
+creates or initializes one. `setup.sh`'s "Password store" step (after
+build+activate) is the separate, independent piece that clones a fresh store
+onto a brand-new host that doesn't have one yet - a warn-not-die step, same
+posture as `firstmate.nix`'s clone-on-first-boot.
+
+## setup.sh is this repo's own root-level script
+
+`setup.sh` lives at the flake root (no `nix/` subdirectory - that layout was
+`dotfiles`' `nix/` submodule, not this repo's). Its self-fetch logic clones
+to `~/.nix-config` and builds `path:<repo>#<attr>` with no `?dir=nix`. The
+`DOTFILES_*` env-var names, the `dotfiles-env` flake input, and the
+`~/.config/dotfiles/env` file path are a deliberate, unchanged-on-purpose
+naming choice carried over from before the split (same rationale as the
+Chezmoi cutover section above) - don't "fix" those to match the repo rename.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
