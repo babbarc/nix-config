@@ -99,7 +99,20 @@
       homeConfigurations.server = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = { inherit fisher dotfilesEnv; };
-        modules = [ ./hosts/server/home.nix ] ++ agenixHomeModules;
+        modules = [ ./hosts/server/home.nix ] ++ agenixHomeModules ++ [
+          # Server-only: the captain's real GPG key backup, already encrypted.
+          # Restored to a side path (NOT ~/.gnupg) so the captain can inspect
+          # and verify it before manually importing it into any keyring - see
+          # the migration report SS10.2 "Agenix-specific rollback". Deliberately
+          # not in agenixHomeModules above: laptop must never receive this.
+          ({ config, ... }: {
+            age.secrets.gpg-server-key = {
+              file = ./gpg-server-key.age;
+              path = "${config.home.homeDirectory}/.agenix-verify/gpg-server-key.asc";
+              mode = "0400";
+            };
+          })
+        ];
       };
 
       # NixOS-WSL host on the Windows machine. home-manager is wired in as a
