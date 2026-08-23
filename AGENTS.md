@@ -26,25 +26,36 @@ Flakes only see git-tracked files - `git add` (even just `-N` to stage-track a n
 file) before any of the above, or evaluation fails with "not tracked by Git" on
 anything newly created.
 
-## Chezmoi-bound module content is neutralized, not deleted
+## Chezmoi cutover: this repo now matches dotfiles' real, landed state
 
-Modules that manage application dotfiles (`nvim.nix`, `wezterm.nix`, `sway.nix`,
-`waybar.nix`, `lazygit.nix`, `fish.nix`'s content block, `herdr.nix`'s
-`config.toml`, `cli-tools.nix`'s `starship.toml`) have their `xdg.configFile`/
-`home.file`/`readFile` declarations commented out with a `TODO(phase2/chezmoi)`
-marker, not removed. They used to point at sibling directories one level above
-`nix/` in the old `dotfiles` repo (e.g. `../../../nvim/lua`); now that this repo's
-root *is* the flake root, those paths point outside the flake source entirely,
-which pure eval forbids. Per the migration report's §1.2 table, this content is
-slated to move to chezmoi in Phase 2 - re-enabling these lines only makes sense
-once that content actually lives somewhere reachable from this repo again (or
-Phase 2 removes the need for them). Packages declared in the same modules (e.g.
-`pkgs.lazygit`, the `cli-tools.nix` package list) are untouched and still active.
+`dotfiles` has since completed its real chezmoi cutover for every applicable
+dotfile, and this repo's modules were synced to match that landed end state
+(not re-derived independently - see git log for the sync commit). Result:
 
-`browser-proxy-firstmate.nix` is the one exception: the report says it stays
-permanently nix-owned (vendored infra config, not a personal dotfile), so its two
-files are vendored directly into this repo at `containers/systemd/` rather than
-neutralized.
+- `pi.nix` and `git.nix` are packages-only / empty, respectively - settings.json
+  merging, the `.pi`/`.claude`/`.codex` symlinks, and git identity config all
+  moved to chezmoi in `dotfiles`.
+- `nvim.nix`, `lazygit.nix`, `cli-tools.nix` (`starship.toml`), `fish.nix`
+  (its second, dotfiles-content `xdg.configFile` block), and `herdr.nix`
+  (`config.toml`) had their content declarations removed outright - no
+  `TODO(phase2/chezmoi)` markers remain in any of these. Packages declared in
+  the same modules (e.g. `pkgs.lazygit`, the `cli-tools.nix` package list,
+  `fish.nix`'s `nix-path.fish`/`interactiveShellInit`) are untouched and still
+  active.
+
+`wezterm.nix`, `sway.nix`, and `waybar.nix` are the deliberate exception:
+`dotfiles` never migrated these to chezmoi (laptop-only desktop tools, never
+exercised on the `server` host), so they're intentionally left as-is here too
+- still fully commented-out/neutralized pending a real `dotfiles`-side cutover
+that hasn't happened yet. Don't "finish" these to match the other modules;
+resync them only once `dotfiles` itself lands a real chezmoi migration for
+them (confirm via `git log -- nix/modules/{wezterm,sway,waybar}.nix` in
+`dotfiles` for a "relinquish ... to chezmoi" commit before touching them).
+
+`browser-proxy-firstmate.nix` is a separate, permanent exception: the
+migration report says it stays permanently nix-owned (vendored infra config,
+not a personal dotfile), so its two files are vendored directly into this
+repo at `containers/systemd/`.
 
 ## agenix bootstrap identity
 
