@@ -35,7 +35,7 @@
     #   --override-input dotfiles-env path:$HOME/.config/dotfiles/env
     # (verified working in pure mode; the override is not written to flake.lock).
     dotfiles-env = {
-      url = "path:../env.example";
+      url = "path:./env.example";
       flake = false;
     };
   };
