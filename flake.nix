@@ -101,23 +101,25 @@
         extraSpecialArgs = { inherit fisher dotfilesEnv; };
         modules = [ ./hosts/server/home.nix ] ++ agenixHomeModules ++ [
           # Server-only: the captain's real GPG key backup, already encrypted.
-          # Restored to a side path (NOT ~/.gnupg) so the captain can inspect
-          # and verify it before manually importing it into any keyring - see
-          # the migration report SS10.2 "Agenix-specific rollback". Deliberately
-          # not in agenixHomeModules above: laptop must never receive this.
+          # Previously restored to a side path (~/.agenix-verify/...) so the
+          # captain could inspect and verify it before trusting the pipeline -
+          # see the migration report SS10.2 "Agenix-specific rollback". That
+          # verification is done (fingerprints matched on the live host), so
+          # this now uses agenix's plain default runtime location
+          # ($XDG_RUNTIME_DIR/agenix/<name>, tmpfs) instead of a custom path.
+          # Deliberately not in agenixHomeModules above: laptop must never
+          # receive this.
           ({ config, ... }: {
             age.secrets.gpg-server-key = {
               file = ./gpg-server-key.age;
-              path = "${config.home.homeDirectory}/.agenix-verify/gpg-server-key.asc";
               mode = "0400";
             };
-            # Same side-path safety pattern as gpg-server-key above: the
-            # captain's real SSH private key, restored to a side path (never
-            # ~/.ssh/id_ed25519) so it can be inspected and verified before
-            # any manual, captain-approved move into a live path.
+            # Same pattern as gpg-server-key above: the captain's real SSH
+            # private key. Verification (diff against the live ~/.ssh key)
+            # is done, so this also uses agenix's plain default runtime
+            # location rather than the old ~/.agenix-verify/ side path.
             age.secrets.ssh-server-key = {
               file = ./ssh-server-key.age;
-              path = "${config.home.homeDirectory}/.agenix-verify/ssh-server-key";
               mode = "0400";
             };
           })
