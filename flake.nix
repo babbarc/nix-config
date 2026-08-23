@@ -111,6 +111,15 @@
               path = "${config.home.homeDirectory}/.agenix-verify/gpg-server-key.asc";
               mode = "0400";
             };
+            # Same side-path safety pattern as gpg-server-key above: the
+            # captain's real SSH private key, restored to a side path (never
+            # ~/.ssh/id_ed25519) so it can be inspected and verified before
+            # any manual, captain-approved move into a live path.
+            age.secrets.ssh-server-key = {
+              file = ./ssh-server-key.age;
+              path = "${config.home.homeDirectory}/.agenix-verify/ssh-server-key";
+              mode = "0400";
+            };
           })
         ];
       };
