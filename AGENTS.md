@@ -46,18 +46,23 @@ permanently nix-owned (vendored infra config, not a personal dotfile), so its tw
 files are vendored directly into this repo at `containers/systemd/` rather than
 neutralized.
 
-## agenix bootstrap identity - known gap
+## agenix bootstrap identity
 
-All three hosts set (or default to) `age.identityPaths` pointing at
-`/etc/ssh/ssh_host_ed25519_key`. On this machine that file is mode `600`,
-owned `root:root` - a normal user account cannot read it. Since `home-manager
-switch` on the two standalone-home-manager Arch hosts (`laptop`, `server`) runs
-as a normal user, not root, agenix secret decryption will not work there until
-this is resolved (e.g. a group ACL granting read access, or a different bootstrap
-identity). This is a known, reported gap, not yet fixed - do not assume the
-current wiring is functional end-to-end. The `wsl` host's NixOS module relies on
-`config.services.openssh.hostKeys`, which has the same underlying permission
-question but wasn't independently checked here.
+The `laptop`/`server` (standalone home-manager) hosts use a dedicated,
+agenix-only identity at `~/.ssh/id_agenix` (private, no passphrase - agenix has
+no ssh-agent integration, see the migration report §3.2) / `~/.ssh/id_agenix.pub`
+(public), generated once per host, outside git. This replaced an earlier design
+that pointed `age.identityPaths` at the system SSH host key
+(`/etc/ssh/ssh_host_ed25519_key`): that file is mode `600`, owned `root:root`,
+and standalone home-manager's `home-manager switch` activates as a normal user,
+which can't read it - a real, confirmed gap, not a hypothetical one. Only the
+`.pub` half ever belongs in `secrets.nix` (see its own comment block); the
+private key is never committed anywhere.
+
+The `wsl` host is unaffected by this - its NixOS module still relies on
+`config.services.openssh.hostKeys` (NixOS's own `age.identityPaths` default,
+not overridden), which wasn't independently re-checked for the same
+permission question.
 
 ## Maintaining this file
 

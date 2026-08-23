@@ -73,10 +73,16 @@
       # homeManagerModules.default instead - see ryantm/agenix's flake.nix).
       # Unlike the wsl host below, home-manager's agenix module has no default
       # age.identityPaths (NixOS's config.services.openssh.hostKeys default is
-      # a NixOS-only mechanism), so it must be set explicitly here.
+      # a NixOS-only mechanism), so it must be set explicitly here. Uses a
+      # dedicated per-machine ~/.ssh/id_agenix identity (generated once per
+      # host, outside git, no passphrase - agenix has no ssh-agent
+      # integration, see the migration report SS3.2) rather than the system
+      # SSH host key: the host key is root-only-readable (mode 600, owned
+      # root:root), which standalone home-manager's normal-user activation
+      # can't read.
       agenixHomeModules = [
         agenix.homeManagerModules.default
-        { age.identityPaths = [ "/etc/ssh/ssh_host_ed25519_key" ]; }
+        { age.identityPaths = [ "/home/yeti/.ssh/id_agenix" ]; }
       ];
     in
     {
