@@ -1,0 +1,56 @@
+# Switch the whisper-dictation hotkey from push-to-talk (hold to record,
+# release to stop) to toggle mode (press once to start, press again to
+# stop). Upstream has no config option for this - it's a behavior change
+# to their Python source, applied here as a patch rather than a config
+# tweak or an upstream contribution.
+#
+# Cut against jacopone/whisper-dictation commit
+# cc86d7e1c47395fc682d590e19ac18518f9707e9 (fetched via
+# `nix flake prefetch github:jacopone/whisper-dictation --json`). Rebase
+# by hand if this stops applying cleanly on a flake input update.
+diff -ru a/config.yaml b/config.yaml
+--- a/config.yaml	2026-08-20 00:19:17.635328275 +0100
++++ b/config.yaml	2026-08-20 00:19:22.625827884 +0100
+@@ -8,7 +8,7 @@
+ #
+ # Every key below is optional; omitted keys fall back to these defaults.
+ 
+-# Push-to-talk hotkey.
++# Toggle hotkey: press once to start recording, press again to stop.
+ # modifiers: any of super, ctrl, alt, shift (all listed must be held)
+ # key: period, comma, space, slash, semicolon
+ hotkey:
+diff -ru a/src/whisper_dictation/daemon.py b/src/whisper_dictation/daemon.py
+--- a/src/whisper_dictation/daemon.py	2026-08-20 00:17:41.066228564 +0100
++++ b/src/whisper_dictation/daemon.py	2026-08-20 00:17:46.081996230 +0100
+@@ -214,20 +214,21 @@
+         # Log for debugging
+         self._log_hotkey_debug(event, hotkey_key, hotkey_modifiers, has_modifiers, hotkey_pressed)
+ 
+-        # Handle hotkey press
++        # Toggle on hotkey press (initial keydown only, not OS key-repeat - evdev
++        # reports repeat as a distinct event.value == 2, so checking strictly for
++        # == 1 already excludes it). Hotkey release is deliberately ignored: this
++        # is toggle mode, not push-to-talk.
+         if (
+             has_modifiers
+             and event.code == hotkey_key
+             and event.value == 1
+-            and not self.is_recording
+         ):
+-            logger.info("🎤 HOTKEY COMBO DETECTED - Starting recording!")
+-            self.start_recording()
+-
+-        # Handle hotkey release
+-        if event.code == hotkey_key and event.value == 0 and self.is_recording:
+-            logger.info("🛑 HOTKEY RELEASED - Stopping recording!")
+-            self.stop_recording_and_transcribe()
++            if self.is_recording:
++                logger.info("🛑 HOTKEY PRESSED - Stopping recording (toggle off)!")
++                self.stop_recording_and_transcribe()
++            else:
++                logger.info("🎤 HOTKEY PRESSED - Starting recording (toggle on)!")
++                self.start_recording()
+ 
+     def run(self):
+         """Main daemon loop"""
