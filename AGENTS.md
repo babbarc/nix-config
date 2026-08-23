@@ -98,6 +98,23 @@ to `~/.nix-config` and builds `path:<repo>#<attr>` with no `?dir=nix`. The
 naming choice carried over from before the split (same rationale as the
 Chezmoi cutover section above) - don't "fix" those to match the repo rename.
 
+## Session secrets: gpg-agent, not gnome-keyring
+
+`gpg-agent` (`modules/dev/gpg-agent.nix`, imported on all three hosts) is the
+sole SSH-agent/session-secret provider everywhere - no gnome-keyring or
+gcr-ssh-agent daemon is enabled on any host. Laptop additionally layers
+`pass-secret-service` and masks `ssh-agent.socket`/`gcr-ssh-agent.socket`
+(`modules/gpg-agent-laptop.nix`, laptop-only sibling to `wezterm.nix`/
+`sway.nix`/`waybar.nix`); server/wsl set only a curses pinentry directly in
+their own host files. Full rationale: migration report §3.3, decision §5.5.
+
+Pinentry is `services.gpg-agent.pinentry.package` (a package) in this repo's
+pinned home-manager - not `pinentryFlavor` (removed) or the flat
+`pinentryPackage` (renamed to the nested form). Generic web docs may describe
+a different version; re-verify against the actual pinned source before
+trusting any option name here:
+`grep -n pinentry $(nix eval --impure --raw --expr '(builtins.getFlake "path:'"$(pwd)"'").inputs.home-manager.outPath')/modules/services/gpg-agent.nix`
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

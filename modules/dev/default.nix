@@ -19,5 +19,6 @@
     ./pi.nix
     ./gpg-public-keys.nix
     ./pass-git-sync.nix
+    ./gpg-agent.nix
   ];
 }

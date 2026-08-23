@@ -21,6 +21,7 @@ in
     ../../modules/wezterm.nix
     ../../modules/sway.nix
     ../../modules/waybar.nix
+    ../../modules/gpg-agent-laptop.nix
     ../../modules/voice-dictation.nix
     ../../modules/fonts.nix
   ];

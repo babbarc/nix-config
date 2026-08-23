@@ -15,6 +15,8 @@ in
 
   programs.home-manager.enable = true;
 
+  services.gpg-agent.pinentry.package = pkgs.pinentry-curses;
+
   imports = [
     ../../modules/dev
   ];
