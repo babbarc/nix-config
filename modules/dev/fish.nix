@@ -45,9 +45,4 @@
   xdg.configFile."fish/conf.d/nix-path.fish".text = ''
     fish_add_path --prepend --global "$HOME/.nix-profile/bin" /nix/var/nix/profiles/default/bin "$HOME/.local/bin"
   '';
-
-  xdg.configFile = {
-    "fish/functions/fisher.fish".source = "${fisher}/functions/fisher.fish";
-    "fish/completions/fisher.fish".source = "${fisher}/completions/fisher.fish";
-  };
 }
