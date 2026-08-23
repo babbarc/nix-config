@@ -38,9 +38,17 @@
       url = "path:./env.example";
       flake = false;
     };
+    # Restores the captain's GPG/SSH key material at activation time, decrypting
+    # against an identity that must already exist on the host (see secrets.nix
+    # and each host's age.identityPaths below - agenix never provisions that
+    # first identity itself, only decrypts against it).
+    agenix = {
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, home-manager, fisher, whisper-dictation, nixos-wsl, dotfiles-env, ... }:
+  outputs = { self, nixpkgs, home-manager, fisher, whisper-dictation, nixos-wsl, dotfiles-env, agenix, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -59,12 +67,23 @@
         parse = acc: line: let m = builtins.match "([^=]+)=(.*)" line; in
           if m == null then acc else acc // { ${builtins.head m} = builtins.elemAt m 1; };
       in builtins.foldl' parse {} lines;
+
+      # Standalone home-manager (Arch has no NixOS module system to hang
+      # agenix's NixOS module off of, so both Arch hosts use agenix's separate
+      # homeManagerModules.default instead - see ryantm/agenix's flake.nix).
+      # Unlike the wsl host below, home-manager's agenix module has no default
+      # age.identityPaths (NixOS's config.services.openssh.hostKeys default is
+      # a NixOS-only mechanism), so it must be set explicitly here.
+      agenixHomeModules = [
+        agenix.homeManagerModules.default
+        { age.identityPaths = [ "/etc/ssh/ssh_host_ed25519_key" ]; }
+      ];
     in
     {
       homeConfigurations.laptop = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = { inherit system fisher whisper-dictation dotfilesEnv; };
-        modules = [ ./hosts/laptop/home.nix ];
+        modules = [ ./hosts/laptop/home.nix ] ++ agenixHomeModules;
       };
 
       # Arch server host - same standalone home-manager shape as the laptop
@@ -74,7 +93,7 @@
       homeConfigurations.server = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = { inherit fisher dotfilesEnv; };
-        modules = [ ./hosts/server/home.nix ];
+        modules = [ ./hosts/server/home.nix ] ++ agenixHomeModules;
       };
 
       # NixOS-WSL host on the Windows machine. home-manager is wired in as a
@@ -88,6 +107,10 @@
         modules = [
           nixos-wsl.nixosModules.default
           home-manager.nixosModules.home-manager
+          # NixOS's own default (age.identityPaths defaults to
+          # config.services.openssh.hostKeys) is exactly the machine's own SSH
+          # host key already generated at first boot - don't override it.
+          agenix.nixosModules.default
           ./hosts/wsl/configuration.nix
         ];
       };
