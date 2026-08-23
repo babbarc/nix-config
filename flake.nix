@@ -83,6 +83,13 @@
       agenixHomeModules = [
         agenix.homeManagerModules.default
         { age.identityPaths = [ "/home/yeti/.ssh/id_agenix" ]; }
+        # Disposable smoke test proving the decrypt pipeline works before
+        # real key material is migrated (Phase 3 of the migration report).
+        # No explicit `path` - decrypts to agenix's own default location
+        # ($XDG_RUNTIME_DIR/agenix/test-secret), which also proves that
+        # default works. Remove this entry, test-secret.age, and its
+        # secrets.nix mapping once the captain confirms decryption works.
+        { age.secrets.test-secret.file = ./test-secret.age; }
       ];
     in
     {

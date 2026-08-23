@@ -30,4 +30,14 @@
 # {
 #   "example-secret.age".publicKeys = [ wsl laptop server ];
 # }
-{ }
+let
+  # Disposable smoke-test entry proving the agenix decrypt pipeline works
+  # end to end before real key material is migrated (Phase 3 of the
+  # migration report). Remove this entry, test-secret.age, and its
+  # age.secrets wiring in flake.nix once the captain confirms decryption
+  # works on laptop/server.
+  agenixIdentity = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGG9npME6C/jYabHnjnRDgGS2HuF3O67hT/0WUJsWw8h agenix-identity";
+in
+{
+  "test-secret.age".publicKeys = [ agenixIdentity ];
+}
