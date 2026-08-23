@@ -39,8 +39,14 @@
   # ~/.config/containers/systemd/browser-proxy-firstmate.py. The quadlet's
   # Volume= line points at that materialized path instead of
   # ~/hermes-agent/browser-proxy.py.
+  # Vendored copy now lives at this repo's own containers/systemd/ (repo
+  # root, two levels up from modules/dev/) rather than a sibling path outside
+  # the repo - this module stays nix-owned permanently (not a chezmoi
+  # migration target, unlike most of nix/modules/dev/), so its vendored
+  # files moved into this repo rather than being left to reference the
+  # dotfiles repo across the split.
   xdg.configFile."containers/systemd/browser-proxy-firstmate.container".source =
-    ../../../containers/systemd/browser-proxy-firstmate.container;
+    ../../containers/systemd/browser-proxy-firstmate.container;
   xdg.configFile."containers/systemd/browser-proxy-firstmate.py".source =
-    ../../../containers/systemd/browser-proxy-firstmate.py;
+    ../../containers/systemd/browser-proxy-firstmate.py;
 }

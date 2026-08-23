@@ -1,0 +1,45 @@
+# Podman quadlet — deploy to ~/.config/containers/systemd/browser-proxy-firstmate.container
+#
+# Firstmate-dedicated browser proxy instance: a second, port-distinct
+# browser-proxy for firstmate's own browser-automation use (testing/QA),
+# fully independent from the production instance in browser-proxy.container
+# (which serves hermes.container's BROWSER_CDP_URL on 3333/3334). Runs the
+# same image with a different port pair and distinct container/volume names
+# so the two instances never collide.
+
+[Unit]
+Description=Hermes Browser Proxy (firstmate) — lazy CDP on port 3343
+After=network-online.target
+
+[Container]
+Image=localhost/browser-proxy:latest
+ContainerName=browser-proxy-firstmate
+Network=host
+
+# Mount podman socket (podman CLI is built into the image)
+Volume=/etc/localtime:/etc/localtime:ro
+Volume=%t/podman/podman.sock:/run/podman/podman.sock:Z
+
+# Mount the proxy script (vendored copy under this repo's home-manager
+# config, materialized via xdg.configFile - see browser-proxy-firstmate.nix)
+Volume=%h/.config/containers/systemd/browser-proxy-firstmate.py:/proxy.py:ro,Z
+
+# Tell podman CLI where the socket is
+Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
+Environment=PYTHONUNBUFFERED=1
+
+# Distinct port pair and container/volume names so this instance never
+# conflicts with or competes for resources with the production instance.
+Environment=PROXY_PORT=3343
+Environment=BROWSER_PORT=3344
+Environment=CONTAINER_NAME=hermes-browser-firstmate
+Environment=BROWSER_VOLUME=hermes-browser-data-firstmate
+
+Exec=/usr/local/bin/python3 -u /proxy.py
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

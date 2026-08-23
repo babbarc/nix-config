@@ -13,10 +13,16 @@
   # its comments), and colors/custom.lua + utils/backdrops.lua +
   # utils/gpu-adapter.lua were dropped rather than vendored - see
   # config/appearance.lua's window_background_opacity comment for why.
-  xdg.configFile = {
-    "wezterm/wezterm.lua".source = ../../wezterm/wezterm.lua;
-    "wezterm/config".source = ../../wezterm/config;
-    "wezterm/utils".source = ../../wezterm/utils;
-    "wezterm/events".source = ../../wezterm/events;
-  };
+  # TODO(phase2/chezmoi): this repo no longer contains wezterm/ (it stays in
+  # the dotfiles repo, migrating to chezmoi per the migration report's SS1.2
+  # table) - the sibling-path references below broke pure eval once nix/
+  # became this repo's own root instead of being nested one level inside
+  # dotfiles, so they're neutralized here until chezmoi takes over this
+  # content.
+  # xdg.configFile = {
+  #   "wezterm/wezterm.lua".source = ../../wezterm/wezterm.lua;
+  #   "wezterm/config".source = ../../wezterm/config;
+  #   "wezterm/utils".source = ../../wezterm/utils;
+  #   "wezterm/events".source = ../../wezterm/events;
+  # };
 }

@@ -47,10 +47,17 @@
   # so a profile-relative default_shell would break herdr panes on
   # NixOS-WSL. Because the config is regenerated on every switch, a fish
   # version bump in nixpkgs regenerates the path - no staleness.
-  xdg.configFile."herdr/config.toml".text = builtins.replaceStrings
-    [ "__FISH_SHELL_PATH__" ]
-    [ "${pkgs.fish}/bin/fish" ]
-    (builtins.readFile ../../../herdr/config.toml);
+  # TODO(phase2/chezmoi): herdr/config.toml stays in the dotfiles repo,
+  # migrating to chezmoi (migration report SS1.2/SS7.5 - the
+  # __FISH_SHELL_PATH__ substitution needs a chezmoi .tmpl equivalent, see
+  # the report for the two options considered). Neutralized here since the
+  # sibling-path readFile broke pure eval once nix/ became this repo's own
+  # root instead of being nested one level inside dotfiles. The bootstrap
+  # activation script below is unaffected and stays nix-managed.
+  # xdg.configFile."herdr/config.toml".text = builtins.replaceStrings
+  #   [ "__FISH_SHELL_PATH__" ]
+  #   [ "${pkgs.fish}/bin/fish" ]
+  #   (builtins.readFile ../../../herdr/config.toml);
 
   # One-time bootstrap: install herdr itself via its curl installer if it's
   # not already on PATH, so a fresh machine's first switch doesn't need the
