@@ -68,6 +68,18 @@ running an old, pre-cutover home-manager generation would lose its
 chezmoi-owned content (`.claude`, `.codex`, `.pi`, nvim, lazygit, herdr,
 wezterm, fish functions) on activation with nothing there yet to replace it.
 
+Both the `init` and `apply` invocations pass `--no-tty`, and `apply` also
+passes `--force`: chezmoi's default behavior on a target file that drifted
+since it last wrote it (herdr rewrites its own `~/.config/herdr/config.toml`
+at runtime, so this isn't hypothetical) is to prompt
+`diff/overwrite/all-overwrite/skip/quit` - with no TTY attached that prompt
+just fails immediately (`chezmoi: <file>: EOF`), confirmed by hand against
+this repo's pinned chezmoi (2.72.0). `--force` is chezmoi's own documented
+flag for exactly this ("make all changes without prompting") - it always
+overwrites the drifted file with the source's target state, never skips or
+excludes it. This is a deliberate captain decision, not a default worth
+reconsidering casually.
+
 `browser-proxy-firstmate.nix` is a separate, permanent exception: the
 migration report says it stays permanently nix-owned (vendored infra config,
 not a personal dotfile), so its two files are vendored directly into this

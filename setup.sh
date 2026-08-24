@@ -575,8 +575,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   esac
   echo "  retry ${BUILD_CMD[*]}"
   echo "  ${ACTIVATE[*]}"
-  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" init"
-  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" apply"
+  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" --no-tty init"
+  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" --no-tty apply --force"
   if [ -e "$HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
   elif [ "$HAS_GIT" -eq 1 ]; then
@@ -788,18 +788,27 @@ info "running: ${ACTIVATE[*]}"
 "${ACTIVATE[@]}"
 
 log "chezmoi"
+# --force + --no-tty make `apply` unattended-safe: chezmoi's default behavior
+# on a target that drifted since it last wrote it (e.g. herdr rewriting its
+# own ~/.config/herdr/config.toml at runtime) is to prompt
+# diff/overwrite/all-overwrite/skip/quit, which with no TTY just fails
+# ("chezmoi: .testfile: EOF") instead of applying - confirmed by hand against
+# this repo's pinned chezmoi (2.72.0). --force is chezmoi's own documented
+# escape hatch ("Make all changes without prompting"): it always overwrites
+# the drifted file with the source's target state, never skips or excludes
+# it, per the captain's explicit call on this.
 if [ -d "$DOTFILES_CHECKOUT" ]; then
   info "applying the chezmoi-managed dotfiles from $DOTFILES_CHECKOUT"
-  if nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" init &&
-    nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" apply; then
+  if nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" --no-tty init &&
+    nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" --no-tty apply --force; then
     info "chezmoi apply complete"
   else
     warn "chezmoi init/apply failed - nix activation above still succeeded. Retry with:"
-    warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT apply"
+    warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty apply --force"
   fi
 else
   warn "$DOTFILES_CHECKOUT not found - skipping chezmoi apply (this repo doesn't manage that checkout, see DOTFILES_CHECKOUT comment above). Clone the dotfiles repo there, then run:"
-  warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT apply"
+  warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty apply --force"
 fi
 
 # --- password store ---------------------------------------------------------------------------------
