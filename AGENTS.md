@@ -52,6 +52,15 @@ resync them only once `dotfiles` itself lands a real chezmoi migration for
 them (confirm via `git log -- nix/modules/{wezterm,sway,waybar}.nix` in
 `dotfiles` for a "relinquish ... to chezmoi" commit before touching them).
 
+`setup.sh` now runs `chezmoi apply` (via the `chezmoi` package added to
+`cli-tools.nix`) right after build+activate, sourced from the sibling
+`dotfiles` checkout at `$DOTFILES_CHECKOUT` (default `~/.dotfiles`, assumed to
+already exist - this repo doesn't clone or manage it, same posture as
+`firstmate.nix`'s `~/firstmate`). This closes the gap where a real host still
+running an old, pre-cutover home-manager generation would lose its
+chezmoi-owned content (`.claude`, `.codex`, `.pi`, nvim, lazygit, herdr,
+wezterm, fish functions) on activation with nothing there yet to replace it.
+
 `browser-proxy-firstmate.nix` is a separate, permanent exception: the
 migration report says it stays permanently nix-owned (vendored infra config,
 not a personal dotfile), so its two files are vendored directly into this

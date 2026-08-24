@@ -20,6 +20,11 @@
 #      - wsl on any other distro: the portable dev-only home-manager profile
 #        (homeConfigurations.server) + env HOME_MANAGER_BACKUP_EXT=backup
 #        ./result/activate
+#      then applies the sibling `dotfiles` repo's chezmoi-managed dotfile
+#      content (nvim, lazygit, herdr, fish functions, wezterm, etc. - see
+#      AGENTS.md's "Chezmoi cutover" section) from $DOTFILES_CHECKOUT
+#      (default ~/.dotfiles, assumed to already exist - this repo doesn't
+#      clone or manage that checkout, see its definition above)
 #
 # Role detection: distro NixOS (os-release ID=nixos) -> wsl; hostname "laptop"
 # -> laptop; otherwise prompted (laptop/server/wsl, default server). The role
@@ -76,6 +81,9 @@ Environment (all optional):
   SETUP_OS_ID      pretend /etc/os-release ID is this value, e.g. nixos
                    (test hook - normally read from /etc/os-release)
   SETUP_ROLE       force the host role, same as --role
+  SETUP_DOTFILES_CHECKOUT
+                   local checkout of the sibling `dotfiles` repo, applied via
+                   chezmoi after activation (default ~/.dotfiles)
 EOF
   exit 1
 }
@@ -146,6 +154,13 @@ ENV_FILE="${SETUP_ENV_FILE:-$HOME/.config/dotfiles/env}"
 # private, empty /tmp, so a /tmp path is not a reliable place to put a file
 # that anything sandbox-adjacent needs to see. Overwritten fresh on every run.
 CA_BUNDLE_FILE="${SETUP_CA_BUNDLE_FILE:-$HOME/.config/dotfiles/bootstrap-ca.crt}"
+# Local checkout of the sibling `dotfiles` repo, which owns the actual
+# chezmoi source state (gated by its own .chezmoiroot) - NOT this repo's own
+# ~/.nix-config checkout. This repo never clones or manages ~/.dotfiles
+# itself (see modules/dev/firstmate.nix's comment on the same posture for
+# ~/firstmate) - it's assumed to already exist on a real host, same as any
+# other manually-maintained checkout.
+DOTFILES_CHECKOUT="${SETUP_DOTFILES_CHECKOUT:-$HOME/.dotfiles}"
 
 # ask <prompt> <default>: prints the prompt (with "[default]: " when a
 # default exists) on stderr and echoes the answer on stdout. Empty input takes
@@ -560,6 +575,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   esac
   echo "  retry ${BUILD_CMD[*]}"
   echo "  ${ACTIVATE[*]}"
+  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" init"
+  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" apply"
   if [ -e "$HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
   elif [ "$HAS_GIT" -eq 1 ]; then
@@ -770,6 +787,21 @@ log "Activate"
 info "running: ${ACTIVATE[*]}"
 "${ACTIVATE[@]}"
 
+log "chezmoi"
+if [ -d "$DOTFILES_CHECKOUT" ]; then
+  info "applying the chezmoi-managed dotfiles from $DOTFILES_CHECKOUT"
+  if nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" init &&
+    nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" apply; then
+    info "chezmoi apply complete"
+  else
+    warn "chezmoi init/apply failed - nix activation above still succeeded. Retry with:"
+    warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT apply"
+  fi
+else
+  warn "$DOTFILES_CHECKOUT not found - skipping chezmoi apply (this repo doesn't manage that checkout, see DOTFILES_CHECKOUT comment above). Clone the dotfiles repo there, then run:"
+  warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT apply"
+fi
+
 # --- password store ---------------------------------------------------------------------------------
 
 # Independent of the activated pass-git-sync hook (modules/dev/pass-git-sync.nix)
@@ -832,6 +864,7 @@ case "$ROLE" in
     fi
     ;;
 esac
+echo "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT apply"
 echo "  (or just re-run $UPDATE_REPO/setup.sh - it re-detects everything)"
 echo
 echo "SSH/GPG keys and other credentials are per-machine and NOT managed by this"

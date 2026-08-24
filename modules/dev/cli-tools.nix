@@ -13,6 +13,7 @@
     git
     git-crypt
     git-filter-repo
+    chezmoi
     tree-sitter
     yq-go
     screen
