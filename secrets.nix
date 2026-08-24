@@ -31,6 +31,7 @@
 #   "example-secret.age".publicKeys = [ wsl laptop server ];
 # }
 let
+  laptop = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICq97lrLktNtRdXEvu07nPkpfv4E+1zG/qeFsAx9WveB laptop-agenix-identity";
   server = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGG9npME6C/jYabHnjnRDgGS2HuF3O67hT/0WUJsWw8h agenix-identity";
 in
 {

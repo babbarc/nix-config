@@ -79,6 +79,12 @@ which can't read it - a real, confirmed gap, not a hypothetical one. Only the
 `.pub` half ever belongs in `secrets.nix` (see its own comment block); the
 private key is never committed anywhere.
 
+The identity path itself (`flake.nix`'s `agenixHomeModules`) is built from
+`dotfilesEnv.DOTFILES_USERNAME`, not hardcoded to either host's real
+username - each host's own build overrides the `dotfiles-env` input to its
+own `~/.config/dotfiles/env`, so the same shared module list still resolves
+to the right per-host path. Don't reintroduce a hardcoded username there.
+
 The `wsl` host is unaffected by this - its NixOS module still relies on
 `config.services.openssh.hostKeys` (NixOS's own `age.identityPaths` default,
 not overridden), which wasn't independently re-checked for the same

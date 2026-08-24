@@ -80,9 +80,16 @@
       # SSH host key: the host key is root-only-readable (mode 600, owned
       # root:root), which standalone home-manager's normal-user activation
       # can't read.
+      #
+      # This list is shared between laptop and server, but the identity path
+      # below still resolves per-host: dotfilesEnv itself is overridden at
+      # build time to each real host's own ~/.config/dotfiles/env (see the
+      # dotfiles-env input above), so laptop's real build sees its own
+      # DOTFILES_USERNAME (phoenix) and server's sees its own (yeti) without
+      # this list needing to become per-host itself.
       agenixHomeModules = [
         agenix.homeManagerModules.default
-        { age.identityPaths = [ "/home/yeti/.ssh/id_agenix" ]; }
+        { age.identityPaths = [ "/home/${dotfilesEnv.DOTFILES_USERNAME or "user"}/.ssh/id_agenix" ]; }
       ];
     in
     {
