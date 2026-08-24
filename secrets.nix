@@ -37,4 +37,8 @@ in
 {
   "gpg-server-key.age".publicKeys = [ server ];
   "ssh-server-key.age".publicKeys = [ server ];
+  "ssh-laptop-key.age".publicKeys = [ laptop ];
+  "ssh-laptop-github.age".publicKeys = [ laptop ];
+  "gpg-laptop-key.age".publicKeys = [ laptop ];
+  "gpg-laptop-aws-tokyo.age".publicKeys = [ laptop ];
 }
