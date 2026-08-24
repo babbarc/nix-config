@@ -23,8 +23,8 @@
 #      then applies the sibling `dotfiles` repo's chezmoi-managed dotfile
 #      content (nvim, lazygit, herdr, fish functions, wezterm, etc. - see
 #      AGENTS.md's "Chezmoi cutover" section) from $DOTFILES_CHECKOUT
-#      (default ~/.dotfiles, assumed to already exist - this repo doesn't
-#      clone or manage that checkout, see its definition above)
+#      (default ~/.dotfiles - cloned from its public GitHub mirror if missing,
+#      see its definition above)
 #
 # Role detection: distro NixOS (os-release ID=nixos) -> wsl; hostname "laptop"
 # -> laptop; otherwise prompted (laptop/server/wsl, default server). The role
@@ -156,11 +156,13 @@ ENV_FILE="${SETUP_ENV_FILE:-$HOME/.config/dotfiles/env}"
 CA_BUNDLE_FILE="${SETUP_CA_BUNDLE_FILE:-$HOME/.config/dotfiles/bootstrap-ca.crt}"
 # Local checkout of the sibling `dotfiles` repo, which owns the actual
 # chezmoi source state (gated by its own .chezmoiroot) - NOT this repo's own
-# ~/.nix-config checkout. This repo never clones or manages ~/.dotfiles
-# itself (see modules/dev/firstmate.nix's comment on the same posture for
-# ~/firstmate) - it's assumed to already exist on a real host, same as any
-# other manually-maintained checkout.
+# ~/.nix-config checkout. If it's missing on this host, this script clones it
+# itself from its public GitHub mirror before running chezmoi (see the
+# "chezmoi" step below) - the same clone-on-first-boot posture as
+# modules/dev/firstmate.nix's ~/firstmate, now even more apt since both are
+# bootstrapped by this script rather than assumed to pre-exist.
 DOTFILES_CHECKOUT="${SETUP_DOTFILES_CHECKOUT:-$HOME/.dotfiles}"
+DOTFILES_REPO_URL="https://github.com/babbarc/dotfiles.git"
 
 # ask <prompt> <default>: prints the prompt (with "[default]: " when a
 # default exists) on stderr and echoes the answer on stdout. Empty input takes
@@ -575,6 +577,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
   esac
   echo "  retry ${BUILD_CMD[*]}"
   echo "  ${ACTIVATE[*]}"
+  if [ -d "$DOTFILES_CHECKOUT" ]; then
+    echo "  # $DOTFILES_CHECKOUT already exists - would leave it untouched"
+  elif [ "$HAS_GIT" -eq 1 ]; then
+    echo "  retry git clone \"$DOTFILES_REPO_URL\" \"$DOTFILES_CHECKOUT\"  # missing - would clone from the public mirror"
+  else
+    echo "  # $DOTFILES_CHECKOUT missing and git is not available - would skip (git is required to clone it)"
+  fi
   echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" --no-tty init"
   echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" --no-tty apply --force"
   if [ -e "$HOME/.password-store" ]; then
@@ -797,6 +806,19 @@ log "chezmoi"
 # escape hatch ("Make all changes without prompting"): it always overwrites
 # the drifted file with the source's target state, never skips or excludes
 # it, per the captain's explicit call on this.
+if [ ! -d "$DOTFILES_CHECKOUT" ]; then
+  if [ "$HAS_GIT" -eq 1 ]; then
+    info "$DOTFILES_CHECKOUT not found - cloning from the public mirror ($DOTFILES_REPO_URL)"
+    if git clone "$DOTFILES_REPO_URL" "$DOTFILES_CHECKOUT"; then
+      info "cloned dotfiles repo to $DOTFILES_CHECKOUT"
+    else
+      warn "failed to clone $DOTFILES_REPO_URL to $DOTFILES_CHECKOUT - set it up manually later with: git clone $DOTFILES_REPO_URL $DOTFILES_CHECKOUT"
+    fi
+  else
+    warn "git is not available - skipping dotfiles clone; install git, then clone it manually with: git clone $DOTFILES_REPO_URL $DOTFILES_CHECKOUT"
+  fi
+fi
+
 if [ -d "$DOTFILES_CHECKOUT" ]; then
   info "applying the chezmoi-managed dotfiles from $DOTFILES_CHECKOUT"
   if nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" --no-tty init &&
@@ -807,7 +829,7 @@ if [ -d "$DOTFILES_CHECKOUT" ]; then
     warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty apply --force"
   fi
 else
-  warn "$DOTFILES_CHECKOUT not found - skipping chezmoi apply (this repo doesn't manage that checkout, see DOTFILES_CHECKOUT comment above). Clone the dotfiles repo there, then run:"
+  warn "$DOTFILES_CHECKOUT not found - skipping chezmoi apply. Clone the dotfiles repo there, then run:"
   warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty apply --force"
 fi
 
