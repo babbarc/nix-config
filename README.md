@@ -42,8 +42,9 @@ cutover" section for the exact split, including the `wezterm.nix`/
 
 The two repos are stitched together at bootstrap time: this repo's
 `setup.sh` builds and activates the right host, then applies `dotfiles`'
-chezmoi source against a local checkout (`$DOTFILES_CHECKOUT`, default
-`~/.dotfiles`) as its final step.
+chezmoi source with chezmoi's own one-shot `init --apply --one-shot` as its
+final step - a single command that clones, applies, and purges its own
+source directory, leaving no persistent local checkout behind.
 
 ## Bootstrap
 
@@ -65,9 +66,9 @@ It's a guided installer that:
    (`homeConfigurations.laptop`/`.server` via `home-manager switch`-style
    activation, or `nixosConfigurations.wsl` via
    `switch-to-configuration` on NixOS)
-4. applies the sibling `dotfiles` repo's chezmoi-managed content from
-   `$DOTFILES_CHECKOUT` (default `~/.dotfiles`) - assumed to already exist;
-   this repo never clones or manages that checkout itself
+4. applies the sibling `dotfiles` repo's chezmoi-managed content via
+   chezmoi's own one-shot fetch+apply+purge - no persistent checkout is
+   cloned or left behind on the host
 
 Use `--dry-run` to see every command it would run without changing
 anything. See `setup.sh --help` and its own header comment for the full

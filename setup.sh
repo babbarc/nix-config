@@ -22,9 +22,9 @@
 #        ./result/activate
 #      then applies the sibling `dotfiles` repo's chezmoi-managed dotfile
 #      content (nvim, lazygit, herdr, fish functions, wezterm, etc. - see
-#      AGENTS.md's "Chezmoi cutover" section) from $DOTFILES_CHECKOUT
-#      (default ~/.dotfiles - cloned from its public GitHub mirror if missing,
-#      see its definition above)
+#      AGENTS.md's "Chezmoi cutover" section) via chezmoi's own one-shot
+#      init+apply, which clones, applies, and purges its source directory in
+#      a single command - no persistent local checkout is left behind
 #
 # Role detection: distro NixOS (os-release ID=nixos) -> wsl; hostname "laptop"
 # -> laptop; otherwise prompted (laptop/server/wsl, default server). The role
@@ -81,9 +81,6 @@ Environment (all optional):
   SETUP_OS_ID      pretend /etc/os-release ID is this value, e.g. nixos
                    (test hook - normally read from /etc/os-release)
   SETUP_ROLE       force the host role, same as --role
-  SETUP_DOTFILES_CHECKOUT
-                   local checkout of the sibling `dotfiles` repo, applied via
-                   chezmoi after activation (default ~/.dotfiles)
 EOF
   exit 1
 }
@@ -154,14 +151,11 @@ ENV_FILE="${SETUP_ENV_FILE:-$HOME/.config/dotfiles/env}"
 # private, empty /tmp, so a /tmp path is not a reliable place to put a file
 # that anything sandbox-adjacent needs to see. Overwritten fresh on every run.
 CA_BUNDLE_FILE="${SETUP_CA_BUNDLE_FILE:-$HOME/.config/dotfiles/bootstrap-ca.crt}"
-# Local checkout of the sibling `dotfiles` repo, which owns the actual
-# chezmoi source state (gated by its own .chezmoiroot) - NOT this repo's own
-# ~/.nix-config checkout. If it's missing on this host, this script clones it
-# itself from its public GitHub mirror before running chezmoi (see the
-# "chezmoi" step below) - the same clone-on-first-boot posture as
-# modules/dev/firstmate.nix's ~/firstmate, now even more apt since both are
-# bootstrapped by this script rather than assumed to pre-exist.
-DOTFILES_CHECKOUT="${SETUP_DOTFILES_CHECKOUT:-$HOME/.dotfiles}"
+# Sibling `dotfiles` repo, which owns the actual chezmoi source state (gated
+# by its own .chezmoiroot) - NOT this repo's own ~/.nix-config checkout.
+# Applied via chezmoi's own one-shot init+apply (see the "chezmoi" step
+# below), which clones, applies, and purges its own source directory in a
+# single command - no persistent local checkout is left on the host.
 DOTFILES_REPO_URL="https://github.com/babbarc/dotfiles.git"
 
 # ask <prompt> <default>: prints the prompt (with "[default]: " when a
@@ -577,15 +571,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
   esac
   echo "  retry ${BUILD_CMD[*]}"
   echo "  ${ACTIVATE[*]}"
-  if [ -d "$DOTFILES_CHECKOUT" ]; then
-    echo "  # $DOTFILES_CHECKOUT already exists - would leave it untouched"
-  elif [ "$HAS_GIT" -eq 1 ]; then
-    echo "  retry git clone \"$DOTFILES_REPO_URL\" \"$DOTFILES_CHECKOUT\"  # missing - would clone from the public mirror"
+  if [ "$HAS_GIT" -eq 1 ]; then
+    echo "  retry nix run nixpkgs#chezmoi -- init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
   else
-    echo "  # $DOTFILES_CHECKOUT missing and git is not available - would skip (git is required to clone it)"
+    echo "  # git is not available - would skip (chezmoi needs git to fetch the repo)"
   fi
-  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" --no-tty init"
-  echo "  nix run nixpkgs#chezmoi -- --source \"$DOTFILES_CHECKOUT\" --no-tty apply --force"
   if [ -e "$HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
   elif [ "$HAS_GIT" -eq 1 ]; then
@@ -806,31 +796,17 @@ log "chezmoi"
 # escape hatch ("Make all changes without prompting"): it always overwrites
 # the drifted file with the source's target state, never skips or excludes
 # it, per the captain's explicit call on this.
-if [ ! -d "$DOTFILES_CHECKOUT" ]; then
-  if [ "$HAS_GIT" -eq 1 ]; then
-    info "$DOTFILES_CHECKOUT not found - cloning from the public mirror ($DOTFILES_REPO_URL)"
-    if git clone "$DOTFILES_REPO_URL" "$DOTFILES_CHECKOUT"; then
-      info "cloned dotfiles repo to $DOTFILES_CHECKOUT"
-    else
-      warn "failed to clone $DOTFILES_REPO_URL to $DOTFILES_CHECKOUT - set it up manually later with: git clone $DOTFILES_REPO_URL $DOTFILES_CHECKOUT"
-    fi
-  else
-    warn "git is not available - skipping dotfiles clone; install git, then clone it manually with: git clone $DOTFILES_REPO_URL $DOTFILES_CHECKOUT"
-  fi
-fi
-
-if [ -d "$DOTFILES_CHECKOUT" ]; then
-  info "applying the chezmoi-managed dotfiles from $DOTFILES_CHECKOUT"
-  if nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" --no-tty init &&
-    nix run nixpkgs#chezmoi -- --source "$DOTFILES_CHECKOUT" --no-tty apply --force; then
+if [ "$HAS_GIT" -eq 1 ]; then
+  info "running chezmoi one-shot init+apply from $DOTFILES_REPO_URL"
+  if nix run nixpkgs#chezmoi -- init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
     info "chezmoi apply complete"
   else
-    warn "chezmoi init/apply failed - nix activation above still succeeded. Retry with:"
-    warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty apply --force"
+    warn "chezmoi init --apply --one-shot failed - nix activation above still succeeded. Retry with:"
+    warn "  nix run nixpkgs#chezmoi -- init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
   fi
 else
-  warn "$DOTFILES_CHECKOUT not found - skipping chezmoi apply. Clone the dotfiles repo there, then run:"
-  warn "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty init && nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT --no-tty apply --force"
+  warn "git is not available - skipping chezmoi apply (chezmoi needs git to fetch the repo). Install git, then run:"
+  warn "  nix run nixpkgs#chezmoi -- init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
 fi
 
 # --- password store ---------------------------------------------------------------------------------
@@ -895,7 +871,7 @@ case "$ROLE" in
     fi
     ;;
 esac
-echo "  nix run nixpkgs#chezmoi -- --source $DOTFILES_CHECKOUT apply"
+echo "  nix run nixpkgs#chezmoi -- init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
 echo "  (or just re-run $UPDATE_REPO/setup.sh - it re-detects everything)"
 echo
 echo "SSH/GPG keys and other credentials are per-machine and NOT managed by this"

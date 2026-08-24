@@ -59,17 +59,20 @@ resync them only once `dotfiles` itself lands a real chezmoi migration for
 them (confirm via `git log -- nix/modules/{wezterm,sway,waybar}.nix` in
 `dotfiles` for a "relinquish ... to chezmoi" commit before touching them).
 
-`setup.sh` now runs `chezmoi apply` (via the `chezmoi` package added to
-`cli-tools.nix`) right after build+activate, sourced from the sibling
-`dotfiles` checkout at `$DOTFILES_CHECKOUT` (default `~/.dotfiles`, assumed to
-already exist - this repo doesn't clone or manage it, same posture as
-`firstmate.nix`'s `~/firstmate`). This closes the gap where a real host still
-running an old, pre-cutover home-manager generation would lose its
+`setup.sh` now runs `nix run nixpkgs#chezmoi -- init "$DOTFILES_REPO_URL"
+--apply --force --no-tty --one-shot` right after build+activate. `--one-shot`
+is chezmoi's own one-command fetch+apply+purge: it clones the sibling
+`dotfiles` repo's chezmoi source into a throwaway directory, applies it, and
+purges that directory again, all in one invocation - no persistent
+`~/.dotfiles` checkout is left on the host. This is a deliberate trade, not
+an oversight: every apply (initial or later) redoes the full clone+apply+purge
+cycle rather than reusing a local checkout. It closes the gap where a real
+host still running an old, pre-cutover home-manager generation would lose its
 chezmoi-owned content (`.claude`, `.codex`, `.pi`, nvim, lazygit, herdr,
 wezterm, fish functions) on activation with nothing there yet to replace it.
 
-Both the `init` and `apply` invocations pass `--no-tty`, and `apply` also
-passes `--force`: chezmoi's default behavior on a target file that drifted
+The single `init --apply --one-shot` invocation passes both `--no-tty` and
+`--force`: chezmoi's default behavior on a target file that drifted
 since it last wrote it (herdr rewrites its own `~/.config/herdr/config.toml`
 at runtime, so this isn't hypothetical) is to prompt
 `diff/overwrite/all-overwrite/skip/quit` - with no TTY attached that prompt
