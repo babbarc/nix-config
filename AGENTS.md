@@ -85,6 +85,13 @@ username - each host's own build overrides the `dotfiles-env` input to its
 own `~/.config/dotfiles/env`, so the same shared module list still resolves
 to the right per-host path. Don't reintroduce a hardcoded username there.
 
+`homeConfigurations.laptop` in `flake.nix` now wires its 4 secrets
+(`ssh-laptop-key`, `ssh-laptop-github`, `gpg-laptop-key`,
+`gpg-laptop-aws-tokyo`) the same way `homeConfigurations.server` wires its
+2 - an extra module appended after `agenixHomeModules`, not folded into it,
+decrypting to agenix's plain default runtime location. See the comment on
+the server block for the rationale in full.
+
 The `wsl` host is unaffected by this - its NixOS module still relies on
 `config.services.openssh.hostKeys` (NixOS's own `age.identityPaths` default,
 not overridden), which wasn't independently re-checked for the same

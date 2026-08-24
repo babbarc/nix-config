@@ -96,7 +96,33 @@
       homeConfigurations.laptop = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = { inherit system fisher whisper-dictation dotfilesEnv; };
-        modules = [ ./hosts/laptop/home.nix ] ++ agenixHomeModules;
+        modules = [ ./hosts/laptop/home.nix ] ++ agenixHomeModules ++ [
+          # Laptop-only: the captain's real GPG/SSH key backups, already
+          # encrypted. Same pattern as homeConfigurations.server below -
+          # verification (fingerprints/diff against the live host) is done,
+          # so this uses agenix's plain default runtime location
+          # ($XDG_RUNTIME_DIR/agenix/<name>, tmpfs) instead of a custom path.
+          # Deliberately not in agenixHomeModules above: server must never
+          # receive these.
+          ({ config, ... }: {
+            age.secrets.gpg-laptop-key = {
+              file = ./gpg-laptop-key.age;
+              mode = "0400";
+            };
+            age.secrets.gpg-laptop-aws-tokyo = {
+              file = ./gpg-laptop-aws-tokyo.age;
+              mode = "0400";
+            };
+            age.secrets.ssh-laptop-key = {
+              file = ./ssh-laptop-key.age;
+              mode = "0400";
+            };
+            age.secrets.ssh-laptop-github = {
+              file = ./ssh-laptop-github.age;
+              mode = "0400";
+            };
+          })
+        ];
       };
 
       # Arch server host - same standalone home-manager shape as the laptop
