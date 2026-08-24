@@ -24,5 +24,6 @@ in
     ../../modules/gpg-agent-laptop.nix
     ../../modules/voice-dictation.nix
     ../../modules/fonts.nix
+    ../../modules/podman.nix
   ];
 }
