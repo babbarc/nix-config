@@ -33,4 +33,30 @@
       fi
     fi
   '';
+
+  # Install herdr's per-harness integration files (e.g.
+  # ~/.pi/agent/extensions/herdr-agent-state.ts,
+  # ~/.claude/hooks/herdr-agent-state.sh,
+  # ~/.codex/herdr-agent-state.sh) for the three agent harnesses this repo
+  # manages, so a fresh machine gets them without a manual `herdr
+  # integration install <target>` per harness. Same guard posture as
+  # herdrInstall above: skip cleanly (don't fail `home-manager switch`) if
+  # `herdr` isn't on PATH yet (e.g. right after a fresh-machine bootstrap,
+  # before herdrInstall above has run) or if an individual install errors.
+  home.activation.herdrIntegrations = lib.hm.dag.entryAfter [ "herdrInstall" ] ''
+    PATH="$HOME/.local/bin:$PATH"
+    if command -v herdr >/dev/null 2>&1; then
+      herdrStatus="$(herdr integration status 2>/dev/null)"
+      for target in pi claude codex; do
+        if echo "$herdrStatus" | grep -qi "^$target: not installed"; then
+          if [ -n "$DRY_RUN_CMD" ]; then
+            echo "$DRY_RUN_CMD would install herdr integration: herdr integration install $target"
+          else
+            herdr integration install "$target" \
+              || echo "warning: herdr integration install $target failed - retry later with: herdr integration install $target" >&2
+          fi
+        fi
+      done
+    fi
+  '';
 }

@@ -34,5 +34,14 @@
     sysz
     presenterm
     fortune
+    glab
+    (pass.withExtensions (exts: [ exts.pass-otp ]))
+    pinentry-curses
+    tea
+    shellcheck
+    # gnupg and pass (base) are already pulled in elsewhere in the active
+    # module set - gnupg via modules/dev/gpg-public-keys.nix's
+    # home.packages, and the pass binary as part of the withExtensions
+    # wrapper above - don't duplicate either as bare home.packages entries.
   ];
 }
