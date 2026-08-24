@@ -104,7 +104,7 @@
           # ($XDG_RUNTIME_DIR/agenix/<name>, tmpfs) instead of a custom path.
           # Deliberately not in agenixHomeModules above: server must never
           # receive these.
-          ({ config, ... }: {
+          ({ config, lib, pkgs, ... }: {
             age.secrets.gpg-laptop-key = {
               file = ./gpg-laptop-key.age;
               mode = "0400";
@@ -121,6 +121,31 @@
               file = ./ssh-laptop-github.age;
               mode = "0400";
             };
+
+            # Restore each decrypted secret into its real, usable location -
+            # but each restore is skip-if-exists: a captain's already-live
+            # real key on an existing machine must never be overwritten by
+            # this decrypted backup. This only matters for a genuinely fresh
+            # host that has none yet.
+            home.activation.restoreLaptopSshKeys = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+              $DRY_RUN_CMD mkdir -p -m 700 "${config.home.homeDirectory}/.ssh"
+              if [ ! -e "${config.home.homeDirectory}/.ssh/id_ed25519" ]; then
+                $DRY_RUN_CMD install -m 600 "${config.age.secrets.ssh-laptop-key.path}" "${config.home.homeDirectory}/.ssh/id_ed25519"
+              fi
+              if [ ! -e "${config.home.homeDirectory}/.ssh/id_github_pv" ]; then
+                $DRY_RUN_CMD install -m 600 "${config.age.secrets.ssh-laptop-github.path}" "${config.home.homeDirectory}/.ssh/id_github_pv"
+              fi
+            '';
+
+            home.activation.restoreLaptopGpgKeys = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+              PATH="${pkgs.gnupg}/bin:$PATH"
+              if ! gpg --list-secret-keys 1926726E2449CF81 >/dev/null 2>&1; then
+                $DRY_RUN_CMD gpg --batch --import "${config.age.secrets.gpg-laptop-key.path}"
+              fi
+              if ! gpg --list-secret-keys 505AFBD78E48B270 >/dev/null 2>&1; then
+                $DRY_RUN_CMD gpg --batch --import "${config.age.secrets.gpg-laptop-aws-tokyo.path}"
+              fi
+            '';
           })
         ];
       };
