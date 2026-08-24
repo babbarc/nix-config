@@ -7,8 +7,15 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 Split fresh (no preserved history) from the `dotfiles` repo's `nix/` directory - see
 that repo's migration report at
 `dotfiles-nix-chezmoi-agenix-migration-plan/report.md` for full design rationale.
-This repo is Phase 1 of that plan: scaffolding + agenix wiring, validated by pure
-Nix evaluation only. Nothing here has been activated on a live system yet.
+This repo started as Phase 1 of that plan (scaffolding + agenix wiring),
+validated by pure Nix evaluation only - see "Validating changes" below for
+what an agent session can itself verify. Since then, the `laptop` and
+`server` hosts have been built and activated end-to-end on their real
+hardware and validated there by the captain directly; real activation is
+run by hand on the actual machine, not from an agent session, so it leaves
+no trace in this repo's git history - don't expect a commit to corroborate
+it. `wsl` has not been activated on a live system; treat it as
+evaluation-only until told otherwise.
 
 ## Validating changes
 

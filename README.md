@@ -18,12 +18,16 @@ applied as the last step of this repo's own bootstrap, below.
 ## Status
 
 Every host config evaluates successfully and builds its full closure via
-pure Nix evaluation (`nix build`/`nix flake check`, no impure inputs). No
-host has been activated (`home-manager switch` / `nixos-rebuild switch`) on
-a real machine from an agent session - see `AGENTS.md`'s "Validating
-changes" section for why that's out of scope here and the exact commands
-used to validate each host. Real activation, if and when it happens, is
-driven by a human running `setup.sh` (below) on the actual machine.
+pure Nix evaluation (`nix build`/`nix flake check`, no impure inputs) - see
+`AGENTS.md`'s "Validating changes" section for the exact commands, which
+is the extent of what any agent session here can itself verify.
+
+Beyond that: **laptop** and **server** have been built and activated
+end-to-end on their real hardware and validated there by the captain
+directly (real activation is run by hand, not from an agent session per
+this repo's own posture, so it leaves no trace in this repo's git
+history). **wsl** has not - nothing indicates it has been activated on a
+real machine yet, so treat it as evaluation-only until proven otherwise.
 
 ## Relationship to `dotfiles`
 
