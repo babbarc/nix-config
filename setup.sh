@@ -16,7 +16,9 @@
 #      - laptop/server: homeConfigurations.<role>.activationPackage, then
 #        env HOME_MANAGER_BACKUP_EXT=backup ./result/activate
 #      - wsl on NixOS: nixosConfigurations.wsl.config.system.build.toplevel,
-#        then sudo ./result/bin/switch-to-configuration switch
+#        then point /nix/var/nix/profiles/system at the result (so the next
+#        WSL boot uses this generation, mirroring nixos-rebuild's profile
+#        step), then sudo ./result/bin/switch-to-configuration switch
 #      - wsl on any other distro: the portable dev-only home-manager profile
 #        (homeConfigurations.server) + env HOME_MANAGER_BACKUP_EXT=backup
 #        ./result/activate
@@ -478,6 +480,13 @@ case "$ROLE" in
   wsl)
     if [ "$IS_NIXOS" -eq 1 ]; then
       ATTR="nixosConfigurations.wsl.config.system.build.toplevel"
+      # switch-to-configuration alone activates the new system for the CURRENT
+      # session only - nixos-rebuild's other half (setting
+      # /nix/var/nix/profiles/system, which NixOS-WSL's systemd shim boots)
+      # is skipped when calling it directly, so without this the next boot
+      # reverts to the previous generation. Mirror nixos-rebuild-ng's two
+      # steps: set_profile, then switch_to_configuration.
+      SET_SYSTEM_PROFILE=1
       ACTIVATE=(sudo ./result/bin/switch-to-configuration switch)
       HOST_LABEL="NixOS-WSL system (nixosConfigurations.wsl)"
     else
@@ -570,6 +579,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
     3) echo "  # existing checkout at $LOCAL_REPO reused (linked to ~/.nix-config if free)" ;;
   esac
   echo "  retry ${BUILD_CMD[*]}"
+  if [ "${SET_SYSTEM_PROFILE:-0}" -eq 1 ]; then
+    echo "  retry sudo nix-env --profile /nix/var/nix/profiles/system --set \"\$(readlink -f ./result)\""
+  fi
   echo "  ${ACTIVATE[*]}"
   if [ "$HAS_GIT" -eq 1 ]; then
     echo "  retry nix run nixpkgs#chezmoi -- init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
@@ -783,6 +795,16 @@ info "running: ${BUILD_CMD[*]}"
 retry "${BUILD_CMD[@]}"
 
 log "Activate"
+if [ "${SET_SYSTEM_PROFILE:-0}" -eq 1 ]; then
+  # Point the boot profile at the freshly built toplevel BEFORE activating:
+  # switch-to-configuration switches /run/current-system and /etc for this
+  # session, but NixOS-WSL's systemd shim boots /nix/var/nix/profiles/system
+  # on the next start - without this the new generation never becomes
+  # boot-default and every reboot reverts to the previous one.
+  PROFILE_SET=(sudo nix-env --profile /nix/var/nix/profiles/system --set "$(readlink -f ./result)")
+  info "running: ${PROFILE_SET[*]}"
+  retry "${PROFILE_SET[@]}"
+fi
 info "running: ${ACTIVATE[*]}"
 "${ACTIVATE[@]}"
 
