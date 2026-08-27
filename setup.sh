@@ -392,7 +392,9 @@ esac
 # they are root/system operations and the target account does not exist yet
 # on a fresh machine.
 ENV_USERNAME="$DOTFILES_USERNAME"
-TARGET_HOME="$(getent passwd "$ENV_USERNAME" 2>/dev/null | cut -d: -f6)"
+# getent fails before the target account exists (fresh machine, run as the
+# image user) - that must not abort the script under set -e/pipefail.
+TARGET_HOME="$(getent passwd "$ENV_USERNAME" 2>/dev/null | cut -d: -f6 || true)"
 [ -n "$TARGET_HOME" ] || TARGET_HOME="/home/$ENV_USERNAME"
 
 run_as_target() {
@@ -829,10 +831,13 @@ info "running: ${ACTIVATE[*]}"
 # switch has created the account.
 if [ "$(id -un)" != "$ENV_USERNAME" ]; then
   if [ -d "$TARGET_HOME" ]; then
-    info "syncing env file into $ENV_USERNAME's home ($TARGET_HOME/.config/dotfiles/env)"
-    sudo mkdir -p "$TARGET_HOME/.config/dotfiles"
-    sudo install -o "$ENV_USERNAME" -m 600 "$ENV_FILE" "$TARGET_HOME/.config/dotfiles/env"
-    sudo chown "$ENV_USERNAME" "$TARGET_HOME/.config/dotfiles"
+    if sudo mkdir -p "$TARGET_HOME/.config/dotfiles" \
+      && sudo install -o "$ENV_USERNAME" -m 600 "$ENV_FILE" "$TARGET_HOME/.config/dotfiles/env" \
+      && sudo chown "$ENV_USERNAME" "$TARGET_HOME/.config/dotfiles"; then
+      info "synced env file into $ENV_USERNAME's home ($TARGET_HOME/.config/dotfiles/env)"
+    else
+      warn "could not sync env file into $TARGET_HOME - the switch succeeded; re-run setup.sh as $ENV_USERNAME to place it"
+    fi
   else
     warn "target home $TARGET_HOME does not exist yet - env file stays at $ENV_FILE; re-run setup.sh as $ENV_USERNAME to place it"
   fi
