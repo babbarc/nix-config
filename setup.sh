@@ -385,6 +385,24 @@ case "$DOTFILES_USERNAME" in
   *' '*) die "username contains spaces: '$DOTFILES_USERNAME'" ;;
 esac
 
+# The env file's user is the TARGET user of this machine; setup.sh may be
+# invoked by a different (image/bootstrap) user before that account exists.
+# Everything user-specific below (env placement, chezmoi, password store)
+# runs as this user; the build and switch stay as the invoking user because
+# they are root/system operations and the target account does not exist yet
+# on a fresh machine.
+ENV_USERNAME="$DOTFILES_USERNAME"
+TARGET_HOME="$(getent passwd "$ENV_USERNAME" 2>/dev/null | cut -d: -f6)"
+[ -n "$TARGET_HOME" ] || TARGET_HOME="/home/$ENV_USERNAME"
+
+run_as_target() {
+  if [ "$(id -un)" = "$ENV_USERNAME" ]; then
+    "$@"
+  else
+    sudo -u "$ENV_USERNAME" -H env NIX_CONFIG="${NIX_CONFIG:-}" "$@"
+  fi
+}
+
 DOTFILES_USER_EMAIL="$(ask 'Email for your global git identity' "$(def DOTFILES_USER_EMAIL "")")"
 while [ -z "$DOTFILES_USER_EMAIL" ]; do
   warn "the email must not be empty"
@@ -583,8 +601,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  retry sudo nix-env --profile /nix/var/nix/profiles/system --set \"\$(readlink -f ./result)\""
   fi
   echo "  ${ACTIVATE[*]}"
+  if [ "$(id -un)" != "$ENV_USERNAME" ]; then
+    echo "  # env file would also be synced into $ENV_USERNAME's home ($TARGET_HOME/.config/dotfiles/env) after the switch"
+  fi
   echo "  retry nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
-  if [ -e "$HOME/.password-store" ]; then
+  if [ -e "$TARGET_HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
   else
     echo "  # ~/.password-store missing - would prompt for its git remote URL and clone it via nix-shell git"
@@ -802,6 +823,21 @@ fi
 info "running: ${ACTIVATE[*]}"
 "${ACTIVATE[@]}"
 
+# The env file is needed by the target user post-reboot (chezmoi templates,
+# fish, wezterm all read ~/.config/dotfiles/env). When setup ran as a
+# different (image) user, sync it into the target user's home now that the
+# switch has created the account.
+if [ "$(id -un)" != "$ENV_USERNAME" ]; then
+  if [ -d "$TARGET_HOME" ]; then
+    info "syncing env file into $ENV_USERNAME's home ($TARGET_HOME/.config/dotfiles/env)"
+    sudo mkdir -p "$TARGET_HOME/.config/dotfiles"
+    sudo install -o "$ENV_USERNAME" -m 600 "$ENV_FILE" "$TARGET_HOME/.config/dotfiles/env"
+    sudo chown "$ENV_USERNAME" "$TARGET_HOME/.config/dotfiles"
+  else
+    warn "target home $TARGET_HOME does not exist yet - env file stays at $ENV_FILE; re-run setup.sh as $ENV_USERNAME to place it"
+  fi
+fi
+
 log "chezmoi"
 # --force + --no-tty make `apply` unattended-safe: chezmoi's default behavior
 # on a target that drifted since it last wrote it (e.g. herdr rewriting its
@@ -820,7 +856,7 @@ log "chezmoi"
 # a preinstalled toolset. (All four closures are already in the store once
 # the system above has been built, so the shell resolves instantly.)
 info "running chezmoi one-shot init+apply from $DOTFILES_REPO_URL"
-if nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
+if run_as_target nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
   info "chezmoi apply complete"
 else
   warn "chezmoi init --apply --one-shot failed - nix activation above still succeeded. Retry with:"
@@ -836,14 +872,14 @@ fi
 # yet. Resilient warn-not-die: failures here never fail the whole script -
 # the host is already built and activated by this point.
 log "Password store"
-if [ -e "$HOME/.password-store" ]; then
-  info "$HOME/.password-store already exists - leaving it untouched"
+if [ -e "$TARGET_HOME/.password-store" ]; then
+  info "$TARGET_HOME/.password-store already exists - leaving it untouched"
 else
   PASS_STORE_URL=""
   while :; do
     printf '%s: ' 'Git remote URL for your pass password-store (e.g. git@gitea.example.com:user/password-store.git)' >&2
     if ! IFS= read -r PASS_STORE_URL; then
-      warn "no password-store URL provided (stdin ended) - skipping; clone it manually later with: git clone <url> $HOME/.password-store"
+      warn "no password-store URL provided (stdin ended) - skipping; clone it manually later with: git clone <url> $TARGET_HOME/.password-store"
       PASS_STORE_URL=""
       break
     fi
@@ -851,10 +887,10 @@ else
     warn "the password-store git remote URL must not be empty"
   done
   if [ -n "$PASS_STORE_URL" ]; then
-    if nix shell nixpkgs#git -c git clone "$PASS_STORE_URL" "$HOME/.password-store"; then
-      info "cloned password store to $HOME/.password-store"
+    if run_as_target nix shell nixpkgs#git -c git clone "$PASS_STORE_URL" "$TARGET_HOME/.password-store"; then
+      info "cloned password store to $TARGET_HOME/.password-store"
     else
-      warn "failed to clone password store from $PASS_STORE_URL - set it up manually later with: git clone $PASS_STORE_URL $HOME/.password-store"
+      warn "failed to clone password store from $PASS_STORE_URL - set it up manually later with: git clone $PASS_STORE_URL $TARGET_HOME/.password-store"
     fi
   fi
 fi
@@ -867,6 +903,9 @@ echo "What happened:"
 echo "  * role: $ROLE - built + activated $HOST_LABEL"
 echo "  * nix-config repo at $UPDATE_REPO ($REPO_PLAN)"
 echo "  * per-machine env file at $ENV_FILE (values from your answers above)"
+if [ "$(id -un)" != "$ENV_USERNAME" ]; then
+  echo "  * env file also synced into $ENV_USERNAME's home ($TARGET_HOME/.config/dotfiles/env)"
+fi
 if [ "$ENV_EXISTED" -eq 1 ]; then
   echo "  * your previous env file's values were kept as defaults and rewritten"
 fi
