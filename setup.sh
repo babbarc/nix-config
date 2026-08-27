@@ -612,7 +612,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   if [ -e "$TARGET_HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
   else
-    echo "  # ~/.password-store missing - would prompt for its git remote URL and clone it via nix-shell git"
+    echo "  # ~/.password-store missing - would prompt for its git remote URL (Enter to skip) and clone it via nix-shell git"
   fi
   echo "# dry-run complete."
   exit 0
@@ -887,23 +887,18 @@ log "Password store"
 if [ -e "$TARGET_HOME/.password-store" ]; then
   info "$TARGET_HOME/.password-store already exists - leaving it untouched"
 else
-  PASS_STORE_URL=""
-  while :; do
-    printf '%s: ' 'Git remote URL for your pass password-store (e.g. git@gitea.example.com:user/password-store.git)' >&2
-    if ! IFS= read -r PASS_STORE_URL; then
-      warn "no password-store URL provided (stdin ended) - skipping; clone it manually later with: git clone <url> $TARGET_HOME/.password-store"
-      PASS_STORE_URL=""
-      break
-    fi
-    [ -n "$PASS_STORE_URL" ] && break
-    warn "the password-store git remote URL must not be empty"
-  done
+  # Optional, same semantics as the other ask_skip prompts: Enter or 'skip'
+  # skips cleanly with a warning (each omission warns, nothing breaks
+  # silently).
+  PASS_STORE_URL="$(ask_skip 'Git remote URL for your pass password-store (e.g. git@gitea.example.com:user/password-store.git) (Enter to skip)' '')"
   if [ -n "$PASS_STORE_URL" ]; then
     if run_as_target nix shell nixpkgs#git -c git clone "$PASS_STORE_URL" "$TARGET_HOME/.password-store"; then
       info "cloned password store to $TARGET_HOME/.password-store"
     else
       warn "failed to clone password store from $PASS_STORE_URL - set it up manually later with: git clone $PASS_STORE_URL $TARGET_HOME/.password-store"
     fi
+  else
+    warn "no password-store URL provided - skipping; clone it manually later with: git clone <url> $TARGET_HOME/.password-store"
   fi
 fi
 
