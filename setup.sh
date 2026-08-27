@@ -24,9 +24,11 @@
 #        ./result/activate
 #      then applies the sibling `dotfiles` repo's chezmoi-managed dotfile
 #      content (nvim, lazygit, herdr, fish functions, wezterm, etc. - see
-#      AGENTS.md's "Chezmoi cutover" section) via chezmoi's own one-shot
-#      init+apply, which clones, applies, and purges its source directory in
-#      a single command - no persistent local checkout is left behind
+#      AGENTS.md's "Chezmoi cutover" section) via chezmoi's own
+#      init+apply --purge, which clones, applies, and purges its source
+#      directory in a single command - no persistent local checkout is left
+#      behind (and no binary purge: --one-shot would delete chezmoi itself,
+#      which fails from the read-only nix store)
 #
 # Role detection: distro NixOS (os-release ID=nixos) -> wsl; hostname "laptop"
 # -> laptop; otherwise prompted (laptop/server/wsl, default server). The role
@@ -155,7 +157,7 @@ ENV_FILE="${SETUP_ENV_FILE:-$HOME/.config/dotfiles/env}"
 CA_BUNDLE_FILE="${SETUP_CA_BUNDLE_FILE:-$HOME/.config/dotfiles/bootstrap-ca.crt}"
 # Sibling `dotfiles` repo, which owns the actual chezmoi source state (gated
 # by its own .chezmoiroot) - NOT this repo's own ~/.nix-config checkout.
-# Applied via chezmoi's own one-shot init+apply (see the "chezmoi" step
+# Applied via chezmoi's own init+apply --purge (see the "chezmoi" step
 # below), which clones, applies, and purges its own source directory in a
 # single command - no persistent local checkout is left on the host.
 DOTFILES_REPO_URL="https://github.com/babbarc/dotfiles.git"
@@ -606,7 +608,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   if [ "$(id -un)" != "$ENV_USERNAME" ]; then
     echo "  # env file would also be synced into $ENV_USERNAME's home ($TARGET_HOME/.config/dotfiles/env) after the switch"
   fi
-  echo "  retry nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
+  echo "  retry nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --purge"
   if [ -e "$TARGET_HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
   else
@@ -860,12 +862,17 @@ log "chezmoi"
 # and run_once_install-fisher.sh calls curl. So this step must not depend on
 # a preinstalled toolset. (All four closures are already in the store once
 # the system above has been built, so the shell resolves instantly.)
-info "running chezmoi one-shot init+apply from $DOTFILES_REPO_URL"
-if run_as_target nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
+info "running chezmoi init+apply from $DOTFILES_REPO_URL"
+# --purge (not --one-shot): one-shot also deletes the chezmoi BINARY after
+# the run (init --one-shot implies purge + purge-binary), which fails from
+# the read-only nix store with 'unlinkat ...: read-only file system'.
+# --purge keeps the no-trace behavior (source dir, config, cache, state)
+# without touching the binary.
+if run_as_target nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --purge; then
   info "chezmoi apply complete"
 else
-  warn "chezmoi init --apply --one-shot failed - nix activation above still succeeded. Retry with:"
-  warn "  nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
+  warn "chezmoi init --apply --purge failed - nix activation above still succeeded. Retry with:"
+  warn "  nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init $DOTFILES_REPO_URL --apply --force --no-tty --purge"
 fi
 
 # --- password store ---------------------------------------------------------------------------------
@@ -931,7 +938,7 @@ case "$ROLE" in
     fi
     ;;
 esac
-echo "  nix run nixpkgs#chezmoi -- init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
+echo "  nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init $DOTFILES_REPO_URL --apply --force --no-tty --purge"
 echo "  (or just re-run $UPDATE_REPO/setup.sh - it re-detects everything)"
 echo
 echo "SSH/GPG keys and other credentials are per-machine and NOT managed by this"

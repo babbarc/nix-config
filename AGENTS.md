@@ -59,19 +59,25 @@ resync them only once `dotfiles` itself lands a real chezmoi migration for
 them (confirm via `git log -- nix/modules/{wezterm,sway,waybar}.nix` in
 `dotfiles` for a "relinquish ... to chezmoi" commit before touching them).
 
-`setup.sh` now runs `nix run nixpkgs#chezmoi -- init "$DOTFILES_REPO_URL"
---apply --force --no-tty --one-shot` right after build+activate. `--one-shot`
-is chezmoi's own one-command fetch+apply+purge: it clones the sibling
-`dotfiles` repo's chezmoi source into a throwaway directory, applies it, and
-purges that directory again, all in one invocation - no persistent
-`~/.dotfiles` checkout is left on the host. This is a deliberate trade, not
+`setup.sh` now runs `nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi
+-c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --purge` right
+after build+activate. `--purge` is chezmoi's own one-command
+fetch+apply+purge: it clones the sibling `dotfiles` repo's chezmoi source
+into a throwaway directory, applies it, and purges that directory again, all
+in one invocation - no persistent `~/.dotfiles` checkout is left on the host.
+The four tools come from nixpkgs because fresh NixOS-WSL images carry none of
+them, and the dotfiles' own chezmoi scripts need git (clone + externals), jq
+(modify_settings.json) and curl (run_once_install-fisher.sh). `--one-shot` is
+deliberately NOT used: it implies `--purge-binary`, which tries to unlink
+chezmoi's own binary - impossible from the read-only nix store
+('unlinkat ...: read-only file system'). This is a deliberate trade, not
 an oversight: every apply (initial or later) redoes the full clone+apply+purge
 cycle rather than reusing a local checkout. It closes the gap where a real
 host still running an old, pre-cutover home-manager generation would lose its
 chezmoi-owned content (`.claude`, `.codex`, `.pi`, nvim, lazygit, herdr,
 wezterm, fish functions) on activation with nothing there yet to replace it.
 
-The single `init --apply --one-shot` invocation passes both `--no-tty` and
+The single `init --apply --purge` invocation passes both `--no-tty` and
 `--force`: chezmoi's default behavior on a target file that drifted
 since it last wrote it (herdr rewrites its own `~/.config/herdr/config.toml`
 at runtime, so this isn't hypothetical) is to prompt
