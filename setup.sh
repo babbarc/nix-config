@@ -583,17 +583,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  retry sudo nix-env --profile /nix/var/nix/profiles/system --set \"\$(readlink -f ./result)\""
   fi
   echo "  ${ACTIVATE[*]}"
-  if [ "$HAS_GIT" -eq 1 ]; then
-    echo "  retry nix run nixpkgs#chezmoi -- init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
-  else
-    echo "  # git is not available - would skip (chezmoi needs git to fetch the repo)"
-  fi
+  echo "  retry nix shell nixpkgs#git nixpkgs#chezmoi -c chezmoi init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
   if [ -e "$HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
-  elif [ "$HAS_GIT" -eq 1 ]; then
-    echo "  # ~/.password-store missing - would prompt for its git remote URL and git clone it there"
   else
-    echo "  # ~/.password-store missing and git is not available - would skip (git is required to clone it)"
+    echo "  # ~/.password-store missing - would prompt for its git remote URL and clone it via nix-shell git"
   fi
   echo "# dry-run complete."
   exit 0
@@ -818,17 +812,17 @@ log "chezmoi"
 # escape hatch ("Make all changes without prompting"): it always overwrites
 # the drifted file with the source's target state, never skips or excludes
 # it, per the captain's explicit call on this.
-if [ "$HAS_GIT" -eq 1 ]; then
-  info "running chezmoi one-shot init+apply from $DOTFILES_REPO_URL"
-  if nix run nixpkgs#chezmoi -- init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
-    info "chezmoi apply complete"
-  else
-    warn "chezmoi init --apply --one-shot failed - nix activation above still succeeded. Retry with:"
-    warn "  nix run nixpkgs#chezmoi -- init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
-  fi
+# git is provided from nixpkgs via `nix shell`: fresh NixOS-WSL images carry
+# no system git, and chezmoi needs git for the initial clone plus this repo's
+# .chezmoiexternal.toml git-repo externals - so this step must not depend on a
+# preinstalled git. (nixpkgs#git's closure is already in the store once the
+# system above has been built, so the shell resolves instantly.)
+info "running chezmoi one-shot init+apply from $DOTFILES_REPO_URL"
+if nix shell nixpkgs#git nixpkgs#chezmoi -c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
+  info "chezmoi apply complete"
 else
-  warn "git is not available - skipping chezmoi apply (chezmoi needs git to fetch the repo). Install git, then run:"
-  warn "  nix run nixpkgs#chezmoi -- init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
+  warn "chezmoi init --apply --one-shot failed - nix activation above still succeeded. Retry with:"
+  warn "  nix shell nixpkgs#git nixpkgs#chezmoi -c chezmoi init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
 fi
 
 # --- password store ---------------------------------------------------------------------------------
@@ -842,7 +836,7 @@ fi
 log "Password store"
 if [ -e "$HOME/.password-store" ]; then
   info "$HOME/.password-store already exists - leaving it untouched"
-elif [ "$HAS_GIT" -eq 1 ]; then
+else
   PASS_STORE_URL=""
   while :; do
     printf '%s: ' 'Git remote URL for your pass password-store (e.g. git@gitea.example.com:user/password-store.git)' >&2
@@ -855,14 +849,12 @@ elif [ "$HAS_GIT" -eq 1 ]; then
     warn "the password-store git remote URL must not be empty"
   done
   if [ -n "$PASS_STORE_URL" ]; then
-    if git clone "$PASS_STORE_URL" "$HOME/.password-store"; then
+    if nix shell nixpkgs#git -c git clone "$PASS_STORE_URL" "$HOME/.password-store"; then
       info "cloned password store to $HOME/.password-store"
     else
       warn "failed to clone password store from $PASS_STORE_URL - set it up manually later with: git clone $PASS_STORE_URL $HOME/.password-store"
     fi
   fi
-else
-  warn "git is not available - skipping password-store clone; install git, then clone it manually with: git clone <url> $HOME/.password-store"
 fi
 
 # --- summary -----------------------------------------------------------------------------------------
