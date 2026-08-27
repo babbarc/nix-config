@@ -150,6 +150,17 @@ in
     home.stateVersion = "24.11";
     programs.home-manager.enable = true;
 
+    # On a fresh NixOS-WSL boot the home-manager activation runs via the
+    # boot-time systemd service, which only spawns the user systemd manager
+    # mid-activation ("Starting user manager for ..."). sd-switch then races
+    # that just-started manager and fails to start units it cannot find yet
+    # (upstream home-manager#6191, e.g. NoSuchUnit for gpg-agent-ssh.socket
+    # with services.gpg-agent.enableSshSupport). Skip the hot-start during
+    # activation: sockets/services are WantedBy sockets.target/default.target
+    # and start normally at the next login. Works on both the pinned and the
+    # newer home-manager ("suggest" is accepted by both).
+    systemd.user.startServices = "suggest";
+
     services.gpg-agent.pinentry.package = pkgs.pinentry-curses;
 
     imports = [ ../../modules/dev ];
