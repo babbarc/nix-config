@@ -583,7 +583,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  retry sudo nix-env --profile /nix/var/nix/profiles/system --set \"\$(readlink -f ./result)\""
   fi
   echo "  ${ACTIVATE[*]}"
-  echo "  retry nix shell nixpkgs#git nixpkgs#chezmoi -c chezmoi init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
+  echo "  retry nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init \"$DOTFILES_REPO_URL\" --apply --force --no-tty --one-shot"
   if [ -e "$HOME/.password-store" ]; then
     echo "  # ~/.password-store already exists - would leave it untouched"
   else
@@ -812,17 +812,19 @@ log "chezmoi"
 # escape hatch ("Make all changes without prompting"): it always overwrites
 # the drifted file with the source's target state, never skips or excludes
 # it, per the captain's explicit call on this.
-# git is provided from nixpkgs via `nix shell`: fresh NixOS-WSL images carry
-# no system git, and chezmoi needs git for the initial clone plus this repo's
-# .chezmoiexternal.toml git-repo externals - so this step must not depend on a
-# preinstalled git. (nixpkgs#git's closure is already in the store once the
-# system above has been built, so the shell resolves instantly.)
+# Tooling is provided from nixpkgs via `nix shell`: fresh NixOS-WSL images
+# carry no system git/jq/curl, and the dotfiles repo's own chezmoi scripts
+# need them - chezmoi needs git for the initial clone plus the repo's
+# .chezmoiexternal.toml git-repo externals, modify_settings.json calls jq,
+# and run_once_install-fisher.sh calls curl. So this step must not depend on
+# a preinstalled toolset. (All four closures are already in the store once
+# the system above has been built, so the shell resolves instantly.)
 info "running chezmoi one-shot init+apply from $DOTFILES_REPO_URL"
-if nix shell nixpkgs#git nixpkgs#chezmoi -c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
+if nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init "$DOTFILES_REPO_URL" --apply --force --no-tty --one-shot; then
   info "chezmoi apply complete"
 else
   warn "chezmoi init --apply --one-shot failed - nix activation above still succeeded. Retry with:"
-  warn "  nix shell nixpkgs#git nixpkgs#chezmoi -c chezmoi init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
+  warn "  nix shell nixpkgs#git nixpkgs#jq nixpkgs#curl nixpkgs#chezmoi -c chezmoi init $DOTFILES_REPO_URL --apply --force --no-tty --one-shot"
 fi
 
 # --- password store ---------------------------------------------------------------------------------
