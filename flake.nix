@@ -184,6 +184,27 @@
         ];
       };
 
+      # The `hermes` system user on the joy host (alps), running the joy
+      # hermes-agent stack rootless under podman. Phase 6 of the hermes-agent
+      # migration (see modules/hermes-joy-stack.nix and the stack scout
+      # report). This is a SECOND, independent home-manager configuration on
+      # that machine - standalone home-manager activates per-user, and the
+      # quadlets must land in /home/hermes/.config/, which yeti's
+      # homeConfigurations.server can't reach. Deliberately carries none of
+      # the shared dev modules and no agenix wiring: it manages only the
+      # joy-stack quadlet files, nothing in hermes' existing dotfiles.
+      # Activated on the live host by the captain, as the hermes user:
+      #   nix run home-manager -- switch -b hm-bak --flake ~/.nix-config#hermes
+      # No dotfiles-env override is needed here (this config reads nothing
+      # from it). The -b backup is required on the first activation because
+      # the three .container files already exist as plain files in hermes'
+      # home; rollback = `home-manager generations` + the previous
+      # generation's `activate`.
+      homeConfigurations.hermes = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+        modules = [ ./hosts/hermes/home.nix ];
+      };
+
       # NixOS-WSL host on the Windows machine. home-manager is wired in as a
       # NixOS module (rather than standalone, as the Arch host above uses)
       # because this output is itself a NixOS system - see hosts/wsl/configuration.nix's

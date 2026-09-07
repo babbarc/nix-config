@@ -1,0 +1,70 @@
+# Podman quadlet — deploy to ~/.config/containers/systemd/hermes.container
+#
+# VENDORED, DO NOT HAND-EDIT. Synced verbatim from the joy-stack deployment
+# overlay (Gitea gitea:babbarc/joy-stack.git, commit 515036a) which is the
+# source of truth for the joy hermes-agent stack. Materialized for the
+# `hermes` user via modules/hermes-joy-stack.nix (see that file's header for
+# the full rationale). Re-sync from the overlay — never edit here — when the
+# overlay bumps the pinned Image= tag; keep this repo's copy byte-identical
+# apart from this header. The Image= line below is deliberately pinned to a
+# concrete localhost/*:<BASE_TAG>-babbarc.<N> tag (not :latest); bumping it
+# is a captain-reviewed change, see the overlay's DEPLOY.md.
+
+[Unit]
+Description=Hermes AI Agent Gateway
+Documentation=https://hermes-agent.nousresearch.com/
+Requires=podman.socket
+After=network-online.target podman.socket
+
+[Container]
+# Built locally on the host until cut-over (see build.sh / DEPLOY.md).
+# Once pushed to the registry, use:
+#   Image=alps:5000/hermes:v2026.8.31-babbarc.1
+Image=localhost/hermes:v2026.8.31-babbarc.1
+ContainerName=hermes
+
+# Start the container's init system (s6-overlay) as internal root (0:0)
+# so it has permission to run usermod and remap the internal hermes user.
+User=0:0
+
+# %U / %G expand to the numeric UID and GID of your host user.
+Environment=HERMES_UID=%U
+Environment=HERMES_GID=%G
+
+# Keep-id ensures your host UID is mapped into the container properly.
+UserNS=keep-id
+GroupAdd=keep-groups
+
+# Mount the host user's rootless podman socket and local time.
+Volume=/etc/localtime:/etc/localtime:ro
+Volume=%t/podman/podman.sock:/run/podman/podman.sock:z
+Volume=/mnt/nebula:/nebula
+# NOTE: no 99-hermes-patches.sh bind-mount any more — the per-boot patch
+# mechanism is retired. The image is reproducible from Containerfile.hermes
+# against a pinned upstream base; see DEPLOY.md.
+# Shared browser data — Chrome profile persists across container restarts,
+# downloads folder is accessible from the agent.
+Volume=hermes-browser-data:/opt/data/home/chrome-downloads
+
+Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
+Environment=DOCKER_HOST=unix:///run/podman/podman.sock
+
+# Agent state in a named volume.
+# NOTE: The 'U' flag is intentionally removed here to prevent Podman from chowning the directory to root on boot.
+Volume=hermes-data:/opt/data:Z
+
+# Host networking — binds directly to the host interface.
+Network=host
+
+# Use the browserless sidecar for all browser automation.
+Environment=BROWSER_CDP_URL=http://localhost:3333
+
+# Pass the standard launch command (s6-overlay handles the rest natively)
+Exec=gateway run
+
+[Service]
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

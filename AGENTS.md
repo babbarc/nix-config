@@ -94,6 +94,26 @@ migration report says it stays permanently nix-owned (vendored infra config,
 not a personal dotfile), so its two files are vendored directly into this
 repo at `containers/systemd/`.
 
+## hermes joy-stack (Phase 6)
+
+`homeConfigurations.hermes` (`flake.nix` -> `hosts/hermes/home.nix` ->
+`modules/hermes-joy-stack.nix`) is a second, independent standalone
+home-manager config for the `hermes` system user (uid 1003) on the joy host,
+alongside `homeConfigurations.server` (yeti) on the same machine - needed
+because standalone home-manager activates per-user and the joy-stack quadlets
+must land in `/home/hermes/.config/`. It vendors three quadlets
+(`containers/systemd/hermes/{hermes,browser-proxy,qmd}.container`) synced
+verbatim from the joy-stack overlay (`gitea:babbarc/joy-stack.git`) with
+`Image=` pinned to `localhost/*:v2026.8.31-babbarc.1`; re-sync from the
+overlay when it bumps the tag. Deliberately does NOT adopt upstream
+`nix/nixosModules.nix` (builds a different image). Named volumes, image
+build/pull, and the root-only pieces (user creation,
+`loginctl enable-linger hermes`, `/mnt/nebula` ACL) stay imperative and out
+of this repo - all three root pieces are already live on the host. Activation
+is captain-run as the hermes user: `nix run home-manager -- switch -b hm-bak
+--flake ~/.nix-config#hermes` (the `-b` is required on first activation - the
+`.container` files pre-exist as plain files).
+
 ## agenix bootstrap identity
 
 The `laptop`/`server` (standalone home-manager) hosts use a dedicated,

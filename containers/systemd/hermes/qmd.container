@@ -1,0 +1,35 @@
+# Podman quadlet — deploy to ~/.config/containers/systemd/qmd.container
+# Then: systemctl --user daemon-reload && systemctl --user start qmd.service
+#
+# VENDORED, DO NOT HAND-EDIT. Synced verbatim from the joy-stack deployment
+# overlay (Gitea gitea:babbarc/joy-stack.git, commit 515036a). Materialized
+# for the `hermes` user via modules/hermes-joy-stack.nix. Re-sync from the
+# overlay when it bumps the pinned Image= tag; keep byte-identical apart from
+# this header.
+
+[Unit]
+Description=QMD Vector Store — local semantic search MCP server
+After=network-online.target
+
+[Container]
+# Built locally on the host until cut-over (see build.sh / DEPLOY.md).
+# Once pushed to the registry, use:
+#   Image=alps:5000/qmd:v2026.8.31-babbarc.1
+Image=localhost/qmd:v2026.8.31-babbarc.1
+ContainerName=qmd
+
+Volume=/etc/localtime:/etc/localtime:ro
+Volume=hermes-data:/opt/data:ro,z
+Volume=qmd-data:/data:Z
+
+# Intel Alder Lake-P GT2 GPU passthrough (OpenCL/Level Zero for node-llama-cpp).
+AddDevice=/dev/dri/renderD128
+
+Network=host
+
+[Service]
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
