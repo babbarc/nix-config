@@ -1,0 +1,43 @@
+# Podman quadlet — deploy to ~/.config/containers/systemd/browser-proxy.container
+#
+# VENDORED, DO NOT HAND-EDIT. Synced verbatim from the joy-stack deployment
+# overlay (Gitea gitea:babbarc/joy-stack.git, commit 515036a). Materialized
+# for the `hermes` user via modules/hermes-joy-stack.nix. This is the
+# production browser proxy for hermes.container's BROWSER_CDP_URL (ports
+# 3333/3334) — distinct from yeti's own containers/systemd/browser-proxy-
+# firstmate.container (3343/3344), which is a separate firstmate instance and
+# NOT part of this stack. Re-sync from the overlay when it bumps the pinned
+# Image= / CONTAINER_IMAGE= tags; keep byte-identical apart from this header.
+
+[Unit]
+Description=Hermes Browser Proxy — lazy CDP on port 3333
+After=network-online.target
+
+[Container]
+# Built locally on the host until cut-over (see build.sh / DEPLOY.md).
+# Once pushed to the registry, use:
+#   Image=alps:5000/browser-proxy:v2026.8.31-babbarc.1
+Image=localhost/browser-proxy:v2026.8.31-babbarc.1
+ContainerName=browser-proxy
+Network=host
+
+# Mount podman socket (podman CLI is built into the image)
+Volume=/etc/localtime:/etc/localtime:ro
+Volume=%t/podman/podman.sock:/run/podman/podman.sock:Z
+
+# browser-proxy.py is baked into the image now — no host bind-mount.
+
+# Tell podman CLI where the socket is
+Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
+Environment=PYTHONUNBUFFERED=1
+# On-demand Chrome sidecar image (pinned; overridable).
+Environment=CONTAINER_IMAGE=localhost/hermes-browser:v2026.8.31-babbarc.1
+
+Exec=/usr/local/bin/python3 -u /proxy.py
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
