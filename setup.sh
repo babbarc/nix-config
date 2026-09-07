@@ -152,7 +152,9 @@ if [ -n "$ROLE" ]; then
 fi
 
 # Repo root is this script's directory (setup.sh lives at the flake root).
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# When piped via `curl | bash -s`, BASH_SOURCE[0] is unset - fall back to the
+# current directory (REPO is only used to guess a local-checkout default).
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" && pwd)"
 # Per-machine env file location (override for testing).
 ENV_FILE="${SETUP_ENV_FILE:-$HOME/.config/dotfiles/env}"
 # Persistent corporate CA bundle assembled for this script's own fetches (see
