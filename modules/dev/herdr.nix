@@ -46,6 +46,12 @@
   home.activation.herdrIntegrations = lib.hm.dag.entryAfter [ "herdrInstall" ] ''
     PATH="$HOME/.local/bin:$PATH"
     if command -v herdr >/dev/null 2>&1; then
+      # Create the harness config dirs first: `herdr integration install pi`
+      # does not create ~/.pi/agent/extensions itself, and on a fresh machine
+      # that dir does not exist until chezmoi materializes dot_pi AFTER
+      # activation - so the pi install would silently fail on first
+      # activation while claude/codex succeed (herdr creates their dirs).
+      mkdir -p "$HOME/.pi/agent/extensions" "$HOME/.claude/hooks" "$HOME/.codex"
       herdrStatus="$(herdr integration status 2>/dev/null)"
       for target in pi claude codex; do
         if echo "$herdrStatus" | grep -qi "^$target: not installed"; then
