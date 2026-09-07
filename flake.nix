@@ -50,7 +50,10 @@
 
   outputs = { self, nixpkgs, home-manager, fisher, whisper-dictation, nixos-wsl, dotfiles-env, agenix, ... }:
     let
-      system = "x86_64-linux";
+      # Per-machine architecture from the dotfiles-env flake input (defaults
+      # to x86_64-linux via the committed env.example). setup.sh writes it from
+      # uname -m, so aarch64 WSL hosts (ARM Windows / Apple Silicon) build too.
+      system = dotfilesEnv.DOTFILES_SYSTEM or "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
         # unrar is nixpkgs' unfreeRedistributable; keep this exception list to
