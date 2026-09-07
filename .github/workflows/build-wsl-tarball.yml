@@ -1,0 +1,53 @@
+name: Build WSL tarball
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  tarball:
+    name: Tarball (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            system: x86_64-linux
+            filename: nixos.wsl
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            system: aarch64-linux
+            filename: nixos.aarch64.wsl
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+
+      - name: Build tarball builder
+        run: |
+          printf 'DOTFILES_SYSTEM=%s\n' "${{ matrix.system }}" > /tmp/dotfiles-env
+          nix build '.#nixosConfigurations.wsl.config.system.build.tarballBuilder' \
+            --override-input dotfiles-env 'path:/tmp/dotfiles-env'
+
+      - name: Build tarball
+        run: sudo ./result/bin/nixos-wsl-tarball-builder "${{ matrix.filename }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nixos-wsl-${{ matrix.arch }}
+          path: ${{ matrix.filename }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.filename }}

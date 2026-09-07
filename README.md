@@ -76,6 +76,33 @@ Use `--dry-run` to see every command it would run without changing
 anything. See `setup.sh --help` and its own header comment for the full
 behavior, including non-interactive/scripted use.
 
+### One command
+
+On a host that already runs NixOS-WSL (or any NixOS/Nix host), the whole
+bootstrap can run non-interactively in a single command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/babbarc/nix-config/master/setup.sh | \
+  SETUP_SOURCE=2 SETUP_USERNAME=your-user SETUP_USER_EMAIL=you@example.com SETUP_YES=1 \
+  bash -s -- --role wsl
+```
+
+`SETUP_SOURCE=2` picks the public GitHub mirror, `SETUP_USERNAME`/
+`SETUP_USER_EMAIL` answer the two required prompts, and `SETUP_YES=1`
+auto-confirms. `SETUP_SYSTEM` is normally detected from `uname -m` but can
+be forced (`x86_64-linux` or `aarch64-linux`).
+
+### From scratch on bare Windows
+
+A pre-built WSL tarball is published as a release asset (push a `v*` tag to
+trigger the build, or run the `Build WSL tarball` workflow manually). Import
+it on any machine with WSL2 enabled, then run the one-command step above to
+personalize the machine:
+
+```powershell
+wsl --import NixOS C:\WSL\NixOS nixos.wsl --version 2
+```
+
 ## Per-machine values
 
 Machine-specific values (username, email, host role, and a handful of

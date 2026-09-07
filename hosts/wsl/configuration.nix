@@ -137,9 +137,9 @@ in
 
   security.pki.certificateFiles = certFiles;
 
-  # Matches nix/home.nix's home.stateVersion - do not bump either without
-  # reading home-manager's stateVersion documentation first.
-  system.stateVersion = "24.11";
+  # WSL is built fresh from scratch, so pin both stateVersions to the current
+  # release (26.11) - the laptop/server hosts keep their first-install 24.11.
+  system.stateVersion = "26.11";
 
   home-manager.useGlobalPkgs = true;
   home-manager.useUserPackages = true;
@@ -147,7 +147,7 @@ in
   home-manager.users.${username} = {
     home.username = username;
     home.homeDirectory = "/home/${username}";
-    home.stateVersion = "24.11";
+    home.stateVersion = "26.11";
     programs.home-manager.enable = true;
 
     # On a fresh NixOS-WSL boot the home-manager activation runs via the
