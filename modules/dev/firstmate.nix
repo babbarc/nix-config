@@ -1,6 +1,6 @@
 { config, lib, pkgs, ... }:
 {
-  # ~/firstmate is a plain git clone (github:kunchenguid/firstmate), not
+  # ~/firstmate is a plain git clone (github:babbarc/firstmate), not
   # nix-tracked — same posture as ~/.dotfiles itself and wezterm's upstream
   # config clone (see wezterm.nix). Update it via firstmate's own
   # /updatefirstmate skill or `git pull`, not via this module.
@@ -39,8 +39,8 @@
   home.activation.firstmateClone = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     firstmate_dir="${config.home.homeDirectory}/firstmate"
     if [ ! -d "$firstmate_dir" ]; then
-      $DRY_RUN_CMD ${pkgs.git}/bin/git clone https://github.com/kunchenguid/firstmate.git "$firstmate_dir" \
-        || echo "warning: could not clone firstmate into $firstmate_dir (offline?) - retry later with: git clone https://github.com/kunchenguid/firstmate.git $firstmate_dir" >&2
+      $DRY_RUN_CMD ${pkgs.git}/bin/git clone https://github.com/babbarc/firstmate.git "$firstmate_dir" \
+        || echo "warning: could not clone firstmate into $firstmate_dir (offline?) - retry later with: git clone https://github.com/babbarc/firstmate.git $firstmate_dir" >&2
     fi
   '';
 
