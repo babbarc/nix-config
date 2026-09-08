@@ -189,6 +189,25 @@ a different version; re-verify against the actual pinned source before
 trusting any option name here:
 `grep -n pinentry $(nix eval --impure --raw --expr '(builtins.getFlake "path:'"$(pwd)"'").inputs.home-manager.outPath')/modules/services/gpg-agent.nix`
 
+## Windows-MCP GUI-control bridge
+
+`modules/dev/windows-mcp.nix` makes the captain's Windows GUI-control bridge
+declarative on the `wsl` host: a single `windowsMcp.harness` enum option
+(none | claude | codex | opencode | grok | kimi) installs ONE extra harness
+alongside pi (always present via `modules/dev/pi.nix`; never installed or
+registered here) and writes that harness's windows-mcp MCP registration.
+The harness is wired from `DOTFILES_WINDOWS_MCP_HARNESS` in
+`~/.config/dotfiles/env` (`hosts/wsl/configuration.nix`); the Windows side
+(uv + windows-mcp, not Nix-managed) is `windows-mcp-bootstrap.ps1`. Full
+usage + per-harness tradeoffs in README "Windows-MCP bridge" (cursor was
+evaluated and excluded - Windows GUI app, not a WSL-side CLI).
+
+Sharp edge: `pkgs.claude-code` is unfree in nixpkgs (the repo's
+allowUnfreePredicate only allows `unrar`), so claude is installed via npm
+(`@anthropic-ai/claude-code`, pinned) under `~/.local` - matching the
+captain's existing native install at `~/.local/bin/claude`. Don't switch it
+to the nixpkgs package without also widening the unfree predicate.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
