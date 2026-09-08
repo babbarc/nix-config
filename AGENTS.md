@@ -189,6 +189,42 @@ a different version; re-verify against the actual pinned source before
 trusting any option name here:
 `grep -n pinentry $(nix eval --impure --raw --expr '(builtins.getFlake "path:'"$(pwd)"'").inputs.home-manager.outPath')/modules/services/gpg-agent.nix`
 
+## Windows-MCP GUI-control bridge
+
+`modules/dev/windows-mcp.nix` makes the captain's Windows GUI-control bridge
+declarative on the `wsl` host: a single `windowsMcp.harness` enum option
+(none | claude | codex | opencode | grok | kimi) installs ONE extra harness
+alongside pi (always present via `modules/dev/pi.nix`; never installed or
+registered here) and writes that harness's windows-mcp MCP registration.
+The harness is wired from `DOTFILES_WINDOWS_MCP_HARNESS` in
+`~/.config/dotfiles/env` (`hosts/wsl/configuration.nix`); the Windows side
+(uv + windows-mcp, not Nix-managed) is `windows-mcp-bootstrap.ps1`. Full
+usage + per-harness tradeoffs in README "Windows-MCP bridge" (cursor was
+evaluated and excluded - Windows GUI app, not a WSL-side CLI).
+
+Sharp edge: `pkgs.claude-code` is unfree in nixpkgs (the repo's
+allowUnfreePredicate only allows `unrar`), so claude is installed via npm
+(`@anthropic-ai/claude-code`, pinned) under `~/.local` - matching the
+captain's existing native install at `~/.local/bin/claude`. Don't switch it
+to the nixpkgs package without also widening the unfree predicate.
+
+Herdr is the runtime backend (firstmate's `FM_BACKEND=herdr`) and is now
+pinned, not curl-installed: `modules/dev/herdr.nix` fetches the exact
+v0.8.2 release binary (protocol 20, `github.com/herdrdev/herdr`) via
+`fetchurl` with per-arch sha256 from `herdr.dev/latest.json`, installs once
+under `~/.local/bin/herdr` when missing, and leaves `herdr update` to
+self-update. No nixpkgs package exists (no binary cache; single Go binary).
+That module also installs herdr integrations for pi + all five selector
+harnesses (claude, codex, kimi, opencode, grok) via `herdr integration
+install`, after `mkdir -p`ing each config dir herdr requires to pre-exist.
+firstmate's herdr backend floor is protocol 14 (needs `herdr` + `jq`;
+`python3` only for optional protocol-16 event push/ordering); all three are
+already declared on every host (jq in `firstmate.nix`, python3 in
+`dev-toolchains.nix`). Fish is the default shell everywhere; on wsl it lands
+at `/etc/profiles/per-user/<user>/bin/fish` (`programs.fish.enable` +
+`useUserPackages`), which herdr's chezmoi `default_shell` points at, and the
+integration hooks are POSIX `sh` + `python3` so they are shell-agnostic.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

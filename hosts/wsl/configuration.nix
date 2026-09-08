@@ -66,6 +66,22 @@ in
   wsl.enable = true;
   wsl.defaultUser = username;
 
+  # Windows interop for the windows-mcp bridge (modules/dev/windows-mcp.nix):
+  # the WSL-side harness spawns powershell.exe/pwsh.exe and speaks MCP over
+  # its stdio, so Windows executables must be runnable and on PATH from WSL.
+  # Most of this is NixOS-WSL's own default, but it is pinned explicitly so a
+  # fresh WSL build reproduces the working interop, and the binfmt_misc
+  # registration (wsl.interop.register) is the opt-in half - without it, any
+  # other boot.binfmt.registrations entry on this host would clobber WSL's
+  # own WSLInterop handler and break running .exe files (see NixOS-WSL's
+  # modules/interop.nix warning).
+  wsl.interop.register = true;
+  wsl.interop.includePath = true;
+  wsl.wslConf.interop = {
+    enabled = true;
+    appendWindowsPath = true;
+  };
+
   # Keep flakes enabled on the system itself: the flake-built system generates
   # /etc/nix/nix.conf from this config (it is read-only by hand), and without
   # this the installed NixOS-WSL system loses flakes after the bootstrap
@@ -162,6 +178,14 @@ in
     systemd.user.startServices = "suggest";
 
     services.gpg-agent.pinentry.package = pkgs.pinentry-curses;
+
+    # Windows-MCP GUI-control bridge: install ONE extra harness alongside pi
+    # (always present via modules/dev/pi.nix) and register the windows-mcp
+    # stdio server in it. Pick the harness via the per-machine env file
+    # (DOTFILES_WINDOWS_MCP_HARNESS, see env.example) or hardcode it here -
+    # "none" (the default) installs nothing. See README "Windows-MCP bridge"
+    # and modules/dev/windows-mcp.nix.
+    windowsMcp.harness = dotfilesEnv.DOTFILES_WINDOWS_MCP_HARNESS or "none";
 
     imports = [ ../../modules/dev ];
   };
