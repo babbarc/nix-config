@@ -179,6 +179,24 @@ Two halves, one of which is Nix-managed:
   alongside it and writes that harness's windows-mcp MCP registration. It
   never installs or registers `pi`.
 
+  `herdr` is the runtime backend that spawns and manages each harness pane.
+  It is installed declaratively too (`modules/dev/herdr.nix`, pinned to
+  v0.8.2 via `fetchurl` - there is no nixpkgs package; the single binary is
+  fetched from GitHub releases and self-updates via `herdr update` at
+  runtime). That module also installs the herdr integration for every
+  supported harness (pi, claude, codex, kimi, opencode, grok), so each pane
+  reports native busy/idle/blocked state and session identity to firstmate's
+  herdr backend out of the box.
+
+  Fish is the default shell on all three hosts (`modules/dev/fish.nix`). On
+  `wsl`, `programs.fish.enable` + `home-manager.useUserPackages` put fish at
+  `/etc/profiles/per-user/<user>/bin/fish`, which is the path herdr's
+  chezmoi-managed `default_shell` uses; the integration hook scripts are
+  POSIX `sh` + `python3` (invoked via explicit `bash`/`sh`), so they work
+  regardless of the pane shell being fish. Their dependencies (`python3`,
+  `jq`) are already declared on every host via `modules/dev/dev-toolchains.nix`
+  and `modules/dev/firstmate.nix`.
+
 ### Choosing the harness
 
 Set `windowsMcp.harness` to one of the supported values below. The normal
