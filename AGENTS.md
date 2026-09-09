@@ -231,24 +231,20 @@ integration hooks are POSIX `sh` + `python3` so they are shell-agnostic.
 
 `modules/dev/browser-proxy-windows.nix` (imported only by
 `hosts/wsl/configuration.nix`, NOT the shared `modules/dev` list - it needs WSL
-interop) vendors `containers/systemd/browser-proxy-windows.{container,py}` as a
-raw `xdg.configFile` drop, same convention as browser-proxy-firstmate. The
-quadlet runs the proxy under rootless podman (host networking) and exposes
-`http://localhost:3333` for a Hermes agent's `browser.cdp_url`; the proxy lazily
-launches the captain's Windows Chrome on `127.0.0.1:9222` and stops it after
-`IDLE_TIMEOUT`. It owns exactly one Chrome via a
-`--user-data-dir=C:\Users\Public\Hermes\ChromeProfile` marker and never touches
-the captain's browsing Chrome. podman itself is declared at the SYSTEM level
-(`environment.systemPackages = [ pkgs.podman ]` + `systemd.packages =
-[ pkgs.podman ]` in hosts/wsl/configuration.nix), NOT in this module: podman's
-user quadlet generator (lib/systemd/user-generators/) is only wired into
-systemd's --user generator search path when podman is installed system-wide
-(`systemd.packages` is what links it into /etc/systemd/user-generators/;
-environment.systemPackages alone leaves that dir empty), so a
-home.packages-level podman drops the *.container files but never generates the
-unit. After the first podman-installing rebuild run `systemctl --user
-daemon-reload` once and confirm `browser-proxy-windows.service` is active
-(WantedBy=default.target, Restart=on-failure starts it at session start).
+interop) deploys `containers/systemd/browser-proxy-windows.py` as a plain
+systemd --user service (`browser-proxy-windows.service`) that runs the proxy
+directly as the login user. The script path is wired through the nix store, not
+a bind mount. It exposes `http://localhost:3333` for a Hermes agent's
+`browser.cdp_url`; the proxy lazily launches the captain's Windows Chrome on
+`127.0.0.1:9222` and stops it after `IDLE_TIMEOUT`. It owns exactly one Chrome
+via a `--user-data-dir=C:\Users\Public\Hermes\ChromeProfile` marker and never
+touches the captain's browsing Chrome. No podman, quadlet, or container image
+is involved: the original podman quadlet was dropped because its WSL interop is
+broken (`powershell.exe` unreachable from inside the container -> Chrome launch
+loop), and running the script directly is verified end-to-end (real Chrome 152).
+Manage it as any user service: `systemctl --user status/start
+browser-proxy-windows` (WantedBy=default.target, Restart=on-failure starts it
+at session start).
 
 Sharp edges that forced the reverse-tunnel design (all verified live):
 - Chrome 152 removed `--remote-debugging-address` (string absent from chrome.dll;
@@ -260,9 +256,10 @@ portproxy` needs elevation the interop user lacks.
 helper (`powershell.exe` + `Add-Type` C# socket bridge, embedded in the .py) that
 connects OUTBOUND back into WSL via WSL2 localhost forwarding and bridges to
 Chrome `127.0.0.1:9222`. Gateway IP is resolved at runtime for diagnostics only.
-- The quadlet must bind-mount `/mnt/c`, `/init`, and `/run/WSL` (WSL interop
-surface) or `powershell.exe` cannot exec from inside the container (verified by
-simulating a fresh PID+mount namespace with those mounts).
+- Running directly on the WSL host (not in a container), the proxy has the WSL
+interop surface natively: `/mnt/c`, `/init`, and `/run/WSL`, so
+`powershell.exe` execs directly - no bind mounts. The dropped podman container
+required those mounts and still failed interop, which is why it was removed.
 - Control API on loopback `CONTROL_PORT` (default 3335): `POST /show` and
 `POST /hide` toggle the managed Chrome window via Win32 `ShowWindow` (scoped to
 the marker process, never the captain's Chrome), and `GET /status` reports

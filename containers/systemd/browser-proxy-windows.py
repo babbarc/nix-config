@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Lazy on-demand CDP proxy for the captain's Windows Chrome (WSL interop).
 
-Runs inside a rootless-podman container with host networking (see the
-matching browser-proxy-windows.container quadlet), and exposes a stable
-localhost CDP endpoint for a Hermes agent in NixOS-WSL:
+Runs directly as a systemd --user service on the NixOS-WSL host (see
+modules/dev/browser-proxy-windows.nix), and exposes a stable localhost
+CDP endpoint for a Hermes agent:
 
     PROXY_PORT  (default 3333)  - Hermes points browser.cdp_url here.
 
@@ -92,8 +92,7 @@ CHROME_USER_DATA_DIR = os.environ.get(
 )
 IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", "3600"))
 
-# Linux path the proxy itself invokes for interop (must exist inside the
-# container via the /mnt/c bind mount).
+# Linux path the proxy itself invokes for interop (the WSL /mnt/c mount).
 POWERSHELL = os.environ.get(
     "POWERSHELL", "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 )

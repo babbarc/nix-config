@@ -251,29 +251,26 @@ Set the Hermes agent's browser endpoint to:
 browser.cdp_url=http://localhost:3333
 ```
 
-It runs as a rootless-podman quadlet (`browser-proxy-windows.container`, host
-networking) that drops the proxy script
-(`containers/systemd/browser-proxy-windows.py`) and unit file into
-`~/.config/containers/systemd/` via `modules/dev/browser-proxy-windows.nix`,
-imported only by `hosts/wsl/configuration.nix` (it needs WSL interop, so it is
-deliberately not in the shared `modules/dev` list used by the Arch hosts).
-podman itself is declared at the SYSTEM level in `hosts/wsl/configuration.nix`
-(`environment.systemPackages` + `systemd.packages`) - the WSL host has no
-distro podman, and podman's user quadlet generator is only wired into systemd's
-`--user` generator search path when podman is installed system-wide
-(`systemd.packages` is what links it into `/etc/systemd/user-generators/`;
-`environment.systemPackages` alone leaves that directory empty), so a
-home.packages-level podman drops the quadlet files but never generates the
-unit. The laptop-scoped `modules/podman.nix` is deliberately not imported on
-wsl.
+It runs as a plain systemd `--user` service (`browser-proxy-windows.service`)
+that executes the proxy script (`containers/systemd/browser-proxy-windows.py`)
+directly as the login user. `modules/dev/browser-proxy-windows.nix` wires the
+script into the nix store and declares the unit with its env (`PROXY_PORT=3333`,
+`CONTROL_PORT=3335`, `CHROME_PORT=9222`, `IDLE_TIMEOUT=3600`,
+`PYTHONUNBUFFERED=1`); it is imported only by `hosts/wsl/configuration.nix` (it
+needs WSL interop, so it is deliberately not in the shared `modules/dev` list
+used by the Arch hosts).
 
-One-time activation on a podman-less host: after the first rebuild that installs
-podman at the system level, the user quadlet generator needs a reload before it
-picks up the unit, and the unit (WantedBy=default.target, Restart=on-failure) then
-auto-starts on the next session start:
+The original deployment ran the script inside a rootless-podman container, but
+that container's WSL interop is broken - `powershell.exe` is unreachable from
+inside it, so the Windows Chrome launch looped. Running the script directly is
+verified end-to-end (the CDP probe returns real Windows Chrome 152), so the
+container, the podman dependency, and the interop bind mounts are gone.
 
-    systemctl --user daemon-reload
-    systemctl --user status browser-proxy-windows.service
+The unit is `WantedBy=default.target` with `Restart=on-failure`, so it starts on
+session start; manage it like any user service:
+
+    systemctl --user status browser-proxy-windows
+    systemctl --user start browser-proxy-windows
 
 Lifecycle: the proxy listens on `3333`, lazily launches Windows Chrome with
 `--remote-debugging-port=9222` on the first CDP request, tracks active
@@ -304,11 +301,10 @@ embedded in the proxy script (an `Add-Type` C# socket bridge) and is spawned
 detached per CDP connection. The WSL gateway IP is still resolved at runtime,
 but for diagnostics only; nothing in the data path hardcodes it.
 
-Because the proxy must exec `powershell.exe` from inside its container, the
-quadlet bind-mounts the WSL interop surface: `/mnt/c` (the Windows drive),
-`/init` (the binfmt interpreter), and `/run/WSL` (the interop sockets). These
-mounts are required - without them `powershell.exe` cannot run from inside the
-container.
+Because the proxy runs directly on the WSL host (not inside a container), it
+has the WSL interop surface available natively - `/mnt/c` (the Windows drive),
+`/init` (the binfmt interpreter), and `/run/WSL` (the interop sockets) - so
+`powershell.exe` execs directly without any bind mounts.
 
 ### Control API: show / hide the managed Chrome window
 
