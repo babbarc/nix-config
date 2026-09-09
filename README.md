@@ -362,8 +362,13 @@ because the laptop/server hosts run no Hermes agent and no WSL interop:
 
 ### Browser wiring
 
-`modules/dev/joy-brain.nix` deep-merges this override into
-`~/.hermes/config.yaml` on every activation:
+Hermes treats `{HERMES_HOME}/config.yaml` as optional per-user state (its own
+first runtime persist creates it from defaults when absent), so the joy-brain
+git tree does not reliably carry one. `modules/dev/joy-brain.nix` therefore
+seeds `~/.hermes/config.yaml` on first activation - from the clone's own
+`config.yaml` when it carries one (so its `mcp_servers` etc. ride along), else
+from this override - and deep-merges this override into it on every
+activation:
 
 ```yaml
 browser:
@@ -426,14 +431,17 @@ out of this repo (they live in the clone and are never copied here):
 - `profiles/` (named profiles)
 - `plugins/` (e.g. the approval-gates plugin) - symlinked at activation, not vendored
 - `bin/` and `scripts/` (joy's helpers, incl. the `cdp-*.py` browser scripts) - symlinked, not vendored
-- `config.yaml` and `SOUL.md` - copied/symlinked from the clone at activation
+- `config.yaml` - seeded from the clone's own when it carries one, else from
+  the module's public `browser.cdp_url` base (the override is deep-merged on
+  every activation); `SOUL.md` - symlinked from the clone at activation
 - all `skills/` except the curated subset above
 
 ### MCP servers
 
 joy-brain's MCP servers are configured in its own `config.yaml` (the
 `mcp_servers` section), which the instantiation copies verbatim into
-`~/.hermes/config.yaml`. joy-brain currently declares one server,
+`~/.hermes/config.yaml` when the clone carries one. joy-brain currently
+declares one server,
 `mcp_servers.qmd` -> `http://localhost:8181/mcp` - the QMD vector-store sidecar
 (see `containers/systemd/hermes/qmd.container`), which runs on **alps**, not on
 the wsl host. It therefore comes along in config but is **out of scope** for

@@ -52,7 +52,11 @@ in
   #   ~/.local/share/joy-brain   the pinned clone (source of truth, never
   #                              edited by this module)
   #   ~/.hermes                  the materialized HERMES_HOME: config.yaml is
-  #                              a writable copy (merged with browser.cdp_url),
+  #                              a writable per-user file (seeded on first
+  #                              activation - from the clone's own config.yaml
+  #                              when it carries one, else from the
+  #                              browser.cdp_url base - then deep-merged with
+  #                              browser.cdp_url on every activation);
   #                              identity/state/plugins/skills are symlinks
   #                              back into the clone
   #
@@ -90,11 +94,22 @@ ${
 
     $DRY_RUN_CMD mkdir -p "$_home"
 
-    # config.yaml: first activation copies joy-brain's config; every activation
-    # then deep-merges ONLY the browser.cdp_url override into the on-disk file,
-    # so Hermes's own runtime edits (`hermes config set`, TUI settings) survive.
-    if [ ! -e "$_home/config.yaml" ] && [ -e "$_src/config.yaml" ]; then
-      $DRY_RUN_CMD cp "$_src/config.yaml" "$_home/config.yaml"
+    # config.yaml: Hermes treats {HERMES_HOME}/config.yaml as optional per-user
+    # state (its own first runtime persist creates it from defaults when
+    # absent), so a copy-from-clone alone cannot be relied on - the clone's git
+    # tree may not carry one, which would leave Hermes with no config at all
+    # and the browser with no backend (the gap this seed fixes). First
+    # activation seeds the file - joy-brain's own config.yaml when the clone
+    # carries one (its mcp_servers etc. ride along), else the minimal
+    # browser.cdp_url base above; every activation then deep-merges ONLY the
+    # browser.cdp_url override into the on-disk file, so Hermes's own runtime
+    # edits (`hermes config set`, TUI settings) survive.
+    if [ ! -e "$_home/config.yaml" ]; then
+      if [ -e "$_src/config.yaml" ]; then
+        $DRY_RUN_CMD cp "$_src/config.yaml" "$_home/config.yaml"
+      else
+        $DRY_RUN_CMD cp ${lib.escapeShellArg browserOverride} "$_home/config.yaml"
+      fi
     fi
     if [ -e "$_home/config.yaml" ]; then
       $_yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
