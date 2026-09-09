@@ -245,6 +245,17 @@ networking) that drops the proxy script
 `~/.config/containers/systemd/` via `modules/dev/browser-proxy-windows.nix`,
 imported only by `hosts/wsl/configuration.nix` (it needs WSL interop, so it is
 deliberately not in the shared `modules/dev` list used by the Arch hosts).
+That module also declares `pkgs.podman` itself - the WSL host has no distro
+podman, and the laptop-scoped `modules/podman.nix` is deliberately not imported
+on wsl - so the quadlet generator actually runs.
+
+One-time activation on a podman-less host: after the first rebuild that installs
+podman, the user quadlet generator needs a reload before it picks up the unit,
+and the unit (WantedBy=default.target, Restart=on-failure) then starts on the
+next session start:
+
+    systemctl --user daemon-reload
+    systemctl --user status browser-proxy-windows.service
 
 Lifecycle: the proxy listens on `3333`, lazily launches Windows Chrome with
 `--remote-debugging-port=9222` on the first CDP request, tracks active
