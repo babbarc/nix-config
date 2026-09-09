@@ -193,6 +193,13 @@ in
       # script that expose localhost:3333 for a Hermes agent. See
       # modules/dev/browser-proxy-windows.nix.
       ../../modules/dev/browser-proxy-windows.nix
+      # Hermes agent (wsl-only): the pinned uv-installed engine plus the
+      # joy-brain instantiation. Both need WSL interop / localhost CDP proxy,
+      # so they are deliberately NOT in the shared modules/dev list the
+      # laptop/server hosts import. See modules/dev/hermes-agent.nix and
+      # modules/dev/joy-brain.nix.
+      ../../modules/dev/hermes-agent.nix
+      ../../modules/dev/joy-brain.nix
     ];
   };
 }

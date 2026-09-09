@@ -303,6 +303,116 @@ Show/hide does not start or stop Chrome, so the single-instance and idle-stop
 invariants are unchanged. The window search targets only the Chrome browser
 process whose command line carries the `--user-data-dir` marker and no
 `--type=` child flag, so the captain's browsing Chrome is never affected.
+## Hermes agent (wsl)
+
+For the `wsl` host only: installs the Nous Research
+[Hermes Agent](https://hermes-agent.nousresearch.com) gateway and instantiates
+the captain's private "joy" assistant as its home, driving Windows Chrome
+through the CDP proxy on `http://localhost:3333` (see the PR that adds
+`modules/dev/browser-proxy-windows.nix`). Two modules, both imported only by
+`hosts/wsl/configuration.nix` - deliberately not the shared `modules/dev` list,
+because the laptop/server hosts run no Hermes agent and no WSL interop:
+
+- `modules/dev/hermes-agent.nix` - the engine. A pinned `uv sync` of
+  `github:NousResearch/hermes-agent` into `~/.local/share/hermes-agent`, with
+  the `hermes` CLI symlinked into `~/.local/bin`. Pin: tag `v2026.8.31`
+  (pyproject 0.21.0, revision `29112bef099274229cadff79cdff7bf7b99c4b77`) - the
+  same base the joy-stack container image builds from
+  (`containers/systemd/hermes/hermes.container`), so both instances run one
+  release. Upstream's own flake packaging (uv2nix + npm-built TUI/web) is not
+  adopted: it drags in five extra flake inputs and, with no public binary
+  cache, multi-hour from-source builds on a fresh host - this repo's
+  install-at-activation convention (see `firstmate.nix`, `herdr.nix`) is the
+  smaller, consistent fit.
+- `modules/dev/joy-brain.nix` - the assistant. Clones the PRIVATE
+  `ssh://git@alps:2222/babbarc/joy-brain.git` (the captain's full Hermes home)
+  at activation into `~/.local/share/joy-brain` and materializes `~/.hermes`
+  (the `HERMES_HOME`) from it. Pin: commit
+  `8c95745461bf7b01dbcc17659853bad62f35bd88` (the `joyBrainRev` constant; an
+  empty value degrades to clone-HEAD-and-warn so a missing pin never
+  hard-fails activation). See the "private data" notes below.
+
+### Browser wiring
+
+`modules/dev/joy-brain.nix` deep-merges this override into
+`~/.hermes/config.yaml` on every activation:
+
+```yaml
+browser:
+  cdp_url: "http://localhost:3333"
+```
+
+That is the stable contract the Windows-Chrome CDP proxy exposes (see the
+proxy's own README section). The merge only forces `browser.cdp_url`; every
+other config key - joy-brain's own config plus Hermes's runtime edits via
+`hermes config set` / the TUI - is preserved.
+
+### Skills: a curated subset, not the whole joy-brain
+
+joy-brain carries ~110 skills (33 top-level dirs, some flat skills, some
+categories). This repo deliberately does NOT instantiate all of them. Only the
+browser skills plus the MCP workflow skill are materialized into
+`~/.hermes/skills/` (as symlinks back into the clone):
+
+| Skill | Why it is included |
+| --- | --- |
+| `chrome-devtools-axi` | Primary browser CLI driver - controls Chrome through the CDP proxy. |
+| `web` | `blocked-page-recovery` - recover from 403/429/paywall/WAF fetch failures. |
+| `software/choose-web-tool` | "Load FIRST for any web interaction" - routes curl vs browser vs scrapling. |
+| `software/operate-browser` | Built-in `browser_navigate`/`click`/`type`/`scroll` tools. |
+| `software/preserve-browser-session` | CDP session-preservation pattern (matches the proxy's persistent Chrome). |
+| `software/use-cdp-protocol` | Raw CDP commands via the `browser_cdp` tool. |
+| `software/run-cdp-scripts` | `cdp-*.py` CLI helpers (list tabs / eval / navigate / screenshot). |
+| `software/recaptcha-solver` | reCAPTCHA v2 challenges on real sites. |
+| `research/scrapling` | Stealth browser scraping / Cloudflare bypass. |
+| `research/duckduckgo-search` | Free web search (no API key) - the default search path. |
+| `mcp` | `native-mcp` - connect/register MCP servers (stdio/HTTP). |
+
+Everything else in joy-brain's `skills/` is deliberately excluded (not copied,
+not symlinked) and stays private in the clone - including all the
+coding/kanban/finance/travel/home/legal/health/contacts/communication
+categories, the `.archive/` skill, and the non-browser `software/*` skills
+(`coding-agent-orchestrator`, `gemini-web-images`,
+`signal-noise-classifier`). The list lives in a single `includedSkills` list at
+the top of `modules/dev/joy-brain.nix`; extend it there if a future task needs
+another joy-brain skill, rather than copying the skill into this repo.
+
+Path caveat: several joy-brain skills hard-code `/opt/data/...` (the
+production container's `HERMES_HOME`). On the wsl host that same content lives
+under `~/.hermes`, so those references need adapting at use time - the skills
+are still loaded and usable as references, but a script that does
+`sys.path.insert(0, '/opt/data/scripts')` must be pointed at
+`~/.hermes/scripts` instead. The `cdp-*.py` helpers themselves already target
+`localhost:3333` (the proxy contract), so the browser path is unaffected.
+
+### What is deliberately NOT vendored
+
+No joy-brain content is committed to this repo. The clone is fetched at
+activation from the private gitea SSH URL, exactly like `~/.firstmate` in
+`modules/dev/firstmate.nix`. This repo only carries the clone URL, the pin, the
+curated skill list and the `browser.cdp_url` wiring. In particular these stay
+out of this repo (they live in the clone and are never copied here):
+
+- `memory/` (personal memory) and `memories/`
+- `contacts/` (private contact database)
+- `profiles/` (named profiles)
+- `plugins/` (e.g. the approval-gates plugin) - symlinked at activation, not vendored
+- `bin/` and `scripts/` (joy's helpers, incl. the `cdp-*.py` browser scripts) - symlinked, not vendored
+- `config.yaml` and `SOUL.md` - copied/symlinked from the clone at activation
+- all `skills/` except the curated subset above
+
+### MCP servers
+
+joy-brain's MCP servers are configured in its own `config.yaml` (the
+`mcp_servers` section), which the instantiation copies verbatim into
+`~/.hermes/config.yaml`. joy-brain currently declares one server,
+`mcp_servers.qmd` -> `http://localhost:8181/mcp` - the QMD vector-store sidecar
+(see `containers/systemd/hermes/qmd.container`), which runs on **alps**, not on
+the wsl host. It therefore comes along in config but is **out of scope** for
+this phase: there is no qmd backend on the wsl host, and this module does not
+silently half-wire one. Declaring MCP servers in Nix (the upstream module's
+`mcpServers` option) is also out of scope; the browser/`chrome-devtools-axi`
+path is the CDP proxy, not an MCP server.
 
 ## Validating changes
 

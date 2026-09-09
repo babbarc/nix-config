@@ -256,6 +256,45 @@ simulating a fresh PID+mount namespace with those mounts).
 the marker process, never the captain's Chrome), and `GET /status` reports
 `{chrome, visible}`. It does not start/stop Chrome, so single-instance +
 idle-stop invariants hold.
+## Hermes agent on wsl (install + joy-brain instantiation)
+
+`modules/dev/hermes-agent.nix` and `modules/dev/joy-brain.nix` (imported only
+by `hosts/wsl/configuration.nix`, never the shared `modules/dev` list) install
+the Hermes agent and instantiate the captain's private joy-brain as its home.
+Full rationale + the curated skill subset + the not-vendored list live in README
+"Hermes agent (wsl)"; the sharp edges worth knowing here:
+
+- Hermes is a pinned `uv sync --extra all --locked --python 3.11` of
+  `github:NousResearch/hermes-agent` at tag `v2026.8.31` (revision
+  `29112bef099274229cadff79cdff7bf7b99c4b77`), into the writable checkout
+  `~/.local/share/hermes-agent`. The checkout MUST be writable: uv's setuptools
+  editable build writes `hermes_agent.egg-info` into the project tree, so a
+  read-only nix-store source fails ("could not create 'hermes_agent.egg-info':
+  Permission denied" - verified). Upstream's flake packaging (uv2nix + npm
+  TUI/web) is deliberately not adopted (5 extra inputs, no binary cache,
+  multi-hour builds) - see the module header.
+- joy-brain clones at activation from `ssh://git@alps:2222/babbarc/joy-brain.git`
+  into `~/.local/share/joy-brain`; `~/.hermes` (HERMES_HOME) is materialized
+  from it - config.yaml is a writable copy with `browser.cdp_url =
+  http://localhost:3333` deep-merged on every activation (yq `*` operator, so
+  runtime edits survive), everything else is symlinked. The joy-brain rev is a
+  single `joyBrainRev` string in `modules/dev/joy-brain.nix` (currently pinned
+  to `8c95745461bf7b01dbcc17659853bad62f35bd88`; empty degrades to clone HEAD +
+  warn so a missing pin never hard-fails activation).
+- Only the browser skills + `mcp` are symlinked into `~/.hermes/skills/` (single
+  `includedSkills` list of ~11 entries, paths relative to `<clone>/skills/` and
+  able to name nested `category/skill` dirs) - never all ~110 joy-brain skills.
+  joy-brain has a MIXED layout: some top-level dirs are flat skills
+  (`chrome-devtools-axi`, `debugging-tools`, `lavish`...), others are categories
+  holding several skills (`software/*`, `research/*`, `system/*`...). Extend the
+  list, don't copy skills into this repo.
+- joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
+  `http://localhost:8181/mcp` (the QMD sidecar on alps). It rides along in the
+  copied config but is OUT OF SCOPE on wsl - no qmd backend there. See README.
+- `HERMES_HOME` is `home.sessionVariables`, so it reaches interactive shells
+  only (same gap firstmate.nix documents). Running `hermes gateway` as a
+  systemd user service (or firstmate dispatch) is deliberately out of scope for
+  this phase - launch it by hand for now.
 
 ## Maintaining this file
 
