@@ -114,6 +114,20 @@ is captain-run as the hermes user: `nix run home-manager -- switch -b hm-bak
 --flake ~/.nix-config#hermes` (the `-b` is required on first activation - the
 `.container` files pre-exist as plain files).
 
+Direct-install migration (Phase B, 2026-09-09) now declares the future
+container-free shape ALONGSIDE the quadlets in the same profile
+(`hosts/hermes/home.nix` imports `modules/dev/{hermes-agent,joy-brain,browser-proxy-linux,hermes-alps-services}.nix`
+with `hermesAgent.standaloneDeps = true` + `joyBrain.full = true`): engine
+(same `hermesRev`), full-brain instantiation, a Linux host-Chrome browser
+proxy (`containers/systemd/browser-proxy-linux.py`, Q1a), and systemd --user
+units for gateway/vision-bridge/baileys-watch/qmd (Q2a native @tobilu/qmd,
+Q3a host CUPS is a documented root step, not a unit). Both paths build green
+and coexist until the captain's Phase C/D cut-over - the direct units are
+deliberately named `hermes-*` to avoid colliding with the podman
+quadlet-generated `hermes.service`/`browser-proxy.service`/`qmd.service`.
+See the scoping report (firstmate data dir) for the full design; do NOT
+retire the quadlets (Phase E) until the direct install is proven.
+
 ## agenix bootstrap identity
 
 The `laptop`/`server` (standalone home-manager) hosts use a dedicated,
