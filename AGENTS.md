@@ -195,7 +195,9 @@ trusting any option name here:
 declarative on the `wsl` host: a single `windowsMcp.harness` enum option
 (none | claude | codex | opencode | grok | kimi) installs ONE extra harness
 alongside pi (always present via `modules/dev/pi.nix`; never installed or
-registered here) and writes that harness's windows-mcp MCP registration.
+registered here) and writes that harness's windows-mcp MCP registration plus
+a `hermes` stdio entry (`hermes mcp serve`), so firstmate can delegate to
+Hermes over MCP from that harness.
 The harness is wired from `DOTFILES_WINDOWS_MCP_HARNESS` in
 `~/.config/dotfiles/env` (`hosts/wsl/configuration.nix`); the Windows side
 (uv + windows-mcp, not Nix-managed) is `windows-mcp-bootstrap.ps1`. Full
@@ -305,6 +307,13 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   only (same gap firstmate.nix documents). Running `hermes gateway` as a
   systemd user service (or firstmate dispatch) is deliberately out of scope for
   this phase - launch it by hand for now.
+- `hermes mcp serve` runs Hermes as a stdio MCP server (no transport flags)
+  that exposes its conversations to other agents; `modules/dev/windows-mcp.nix`
+  registers a `hermes` entry (command `hermes`, args `["mcp", "serve"]`) into
+  the chosen `windowsMcp.harness` alongside windows-mcp, in the same
+  per-harness format. That is how firstmate delegates to Hermes: spawn a
+  crewmate on the chosen harness and have it call the `hermes` MCP server -
+  not by teaching firstmate to spawn Hermes as a pane.
 
 ## Maintaining this file
 
