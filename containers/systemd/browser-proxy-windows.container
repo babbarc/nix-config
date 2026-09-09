@@ -47,6 +47,8 @@ Environment=PYTHONUNBUFFERED=1
 
 # Stable external contract: Hermes points browser.cdp_url at localhost:3333.
 Environment=PROXY_PORT=3333
+# Loopback control API for show/hide: POST /show, POST /hide, GET /status.
+Environment=CONTROL_PORT=3335
 # Internal reverse-pipe ingress: the Windows helper connects here (WSL2
 # localhost forwarding) to hand Chrome traffic back into the proxy.
 Environment=PIPE_PORT=9223

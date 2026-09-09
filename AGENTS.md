@@ -251,6 +251,11 @@ Chrome `127.0.0.1:9222`. Gateway IP is resolved at runtime for diagnostics only.
 - The quadlet must bind-mount `/mnt/c`, `/init`, and `/run/WSL` (WSL interop
 surface) or `powershell.exe` cannot exec from inside the container (verified by
 simulating a fresh PID+mount namespace with those mounts).
+- Control API on loopback `CONTROL_PORT` (default 3335): `POST /show` and
+`POST /hide` toggle the managed Chrome window via Win32 `ShowWindow` (scoped to
+the marker process, never the captain's Chrome), and `GET /status` reports
+`{chrome, visible}`. It does not start/stop Chrome, so single-instance +
+idle-stop invariants hold.
 
 ## Maintaining this file
 

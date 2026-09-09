@@ -56,10 +56,27 @@ that Chrome instead of launching a second, so there is never more than one
 Chrome with remote debugging on CHROME_PORT. On idle timeout it stops
 exactly its marker Chrome (and nothing else). Concurrent CDP requests are
 serialized by the same lock, so they cannot spawn duplicates.
+
+Control API (show / hide the managed Chrome window)
+---------------------------------------------------
+A small control listener on CONTROL_PORT (default 3335, loopback only)
+exposes on-demand window visibility for the managed Chrome:
+
+    POST /show      - show the managed Chrome window(s)
+    POST /hide      - hide the managed Chrome window(s)
+    GET  /status    - {"chrome": <status>, "visible": <VISIBLE|HIDDEN|NOT_RUNNING>}
+
+Show/hide uses Win32 ShowWindow (via an Add-Type P/Invoke in the same
+powershell.exe helper mechanism) and targets ONLY the top-level windows of
+the browser process that carries the --user-data-dir marker and no --type=
+flag (the managed process). It can never touch the captain's browsing
+Chrome. These endpoints do not start or stop Chrome, so the single-instance
+and idle-stop invariants are unaffected.
 """
 
 import asyncio
 import base64
+import json
 import os
 import re
 import signal
@@ -67,6 +84,7 @@ import subprocess
 import time
 
 PROXY_PORT = int(os.environ.get("PROXY_PORT", "3333"))
+CONTROL_PORT = int(os.environ.get("CONTROL_PORT", "3335"))
 PIPE_PORT = int(os.environ.get("PIPE_PORT", "9223"))
 CHROME_PORT = int(os.environ.get("CHROME_PORT", "9222"))
 CHROME_USER_DATA_DIR = os.environ.get(
@@ -216,6 +234,56 @@ Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" -ErrorAction Silentl
 Write-Output 'STOPPED'
 '''
 
+# Show / hide / query the managed Chrome's windows via Win32 ShowWindow. The
+# window search is scoped strictly to the browser process that carries our
+# --user-data-dir marker and no --type= child flag, so it can never touch the
+# captain's browsing Chrome. __ACTION_BODY__ is one of the show/hide/query
+# one-liners injected by set_chrome_visibility().
+SET_CHROME_VISIBILITY_PS = r'''
+$ErrorActionPreference = 'Stop'
+$dir = __PROFILE__
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ChromeWin {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+  public static int Set(uint targetPid, int cmd) {
+    int count = 0;
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      uint pid;
+      GetWindowThreadProcessId(h, out pid);
+      if (pid == targetPid) { ShowWindow(h, cmd); count++; }
+      return true;
+    }, IntPtr.Zero);
+    return count;
+  }
+
+  public static string Query(uint targetPid) {
+    string state = "HIDDEN";
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      uint pid;
+      GetWindowThreadProcessId(h, out pid);
+      if (pid == targetPid && IsWindowVisible(h)) { state = "VISIBLE"; }
+      return true;
+    }, IntPtr.Zero);
+    return state;
+  }
+}
+'@
+$browser = Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -and $_.CommandLine.Contains($dir) -and -not $_.CommandLine.Contains('--type=') } |
+  Select-Object -First 1
+if (-not $browser) { Write-Output 'NOT_RUNNING' }
+else {
+  __ACTION_BODY__
+}
+'''
+
 
 async def powershell(script: str, timeout: float = 60):
     """Run a PowerShell script via WSL interop. Returns (stdout, stderr)."""
@@ -328,6 +396,34 @@ async def stop_chrome() -> None:
     )
 
 
+async def set_chrome_visibility(action: str) -> str:
+    """Show/hide/query the managed Chrome window. Returns the PS stdout."""
+    body = {
+        "show": '$n = [ChromeWin]::Set($browser.ProcessId, 5); Write-Output "SHOWN $n"',
+        "hide": '$n = [ChromeWin]::Set($browser.ProcessId, 0); Write-Output "HIDDEN $n"',
+        "query": 'Write-Output ([ChromeWin]::Query($browser.ProcessId))',
+    }[action]
+    script = build(
+        SET_CHROME_VISIBILITY_PS,
+        PROFILE=ps_quote(CHROME_USER_DATA_DIR),
+        ACTION_BODY=body,
+    )
+    stdout, _ = await powershell(script, timeout=60)
+    return stdout.strip()
+
+
+async def show_chrome() -> str:
+    return await set_chrome_visibility("show")
+
+
+async def hide_chrome() -> str:
+    return await set_chrome_visibility("hide")
+
+
+async def chrome_visible() -> str:
+    return await set_chrome_visibility("query")
+
+
 async def launch_helper() -> None:
     """Detached, per-connection Windows helper that bridges Chrome -> WSL."""
     helper = build(HELPER_PS, CHROME_PORT=CHROME_PORT, PIPE_PORT=PIPE_PORT)
@@ -397,6 +493,68 @@ async def proxy_handler(reader, writer):
     finally:
         active_connections -= 1
         log(f"Disconnect {peer} (active={active_connections})")
+
+
+HTTP_REASON = {200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed", 500: "Internal Server Error"}
+
+
+async def control_respond(writer, status, body, content_type="text/plain; charset=utf-8"):
+    data = body.encode()
+    header = (
+        f"HTTP/1.1 {status} {HTTP_REASON.get(status, 'OK')}\r\n"
+        f"Content-Type: {content_type}\r\n"
+        f"Content-Length: {len(data)}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode()
+    writer.write(header + data)
+    await writer.drain()
+
+
+async def control_handler(reader, writer):
+    """Minimal HTTP control API: POST /show, POST /hide, GET /status."""
+    try:
+        request_line = await asyncio.wait_for(reader.readline(), timeout=5)
+        if not request_line:
+            return
+        parts = request_line.decode(errors="replace").split()
+        if len(parts) < 2:
+            await control_respond(writer, 400, "bad request")
+            return
+        method, path = parts[0].upper(), parts[1]
+        # Drain headers until the blank line.
+        while True:
+            line = await asyncio.wait_for(reader.readline(), timeout=5)
+            if line in (b"\r\n", b"\n", b""):
+                break
+
+        if method == "POST" and path == "/show":
+            result = await show_chrome()
+            await control_respond(writer, 200 if result.startswith("SHOWN") else 404, result)
+        elif method == "POST" and path == "/hide":
+            result = await hide_chrome()
+            await control_respond(writer, 200 if result.startswith("HIDDEN") else 404, result)
+        elif method == "GET" and path in ("/", "/status"):
+            status = await chrome_status()
+            visible = await chrome_visible()
+            await control_respond(
+                writer,
+                200,
+                json.dumps({"chrome": status, "visible": visible}),
+                "application/json",
+            )
+        else:
+            await control_respond(writer, 404, "not found")
+    except asyncio.TimeoutError:
+        pass
+    except Exception as exc:
+        log(f"control handler error: {exc}")
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
 
 
 async def idle_monitor():
@@ -472,6 +630,9 @@ async def main():
     pipe_server = await asyncio.start_server(pipe_accept_handler, "0.0.0.0", PIPE_PORT)
     log(f"Pipe ingress on 0.0.0.0:{PIPE_PORT} (Windows helper connects here)")
 
+    control_server = await asyncio.start_server(control_handler, "127.0.0.1", CONTROL_PORT)
+    log(f"Control API on 127.0.0.1:{CONTROL_PORT} (POST /show, POST /hide, GET /status)")
+
     asyncio.create_task(idle_monitor())
 
     server = await asyncio.start_server(proxy_handler, "127.0.0.1", PROXY_PORT)
@@ -479,7 +640,7 @@ async def main():
     log(f"Listening on {addr} -> Windows Chrome :{CHROME_PORT}")
     log(f"Idle timeout: {IDLE_TIMEOUT}s")
 
-    async with server, pipe_server:
+    async with server, pipe_server, control_server:
         await shutdown_event.wait()
 
     log("Shut down.")

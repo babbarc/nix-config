@@ -281,6 +281,29 @@ quadlet bind-mounts the WSL interop surface: `/mnt/c` (the Windows drive),
 mounts are required - without them `powershell.exe` cannot run from inside the
 container.
 
+### Control API: show / hide the managed Chrome window
+
+The proxy also listens on a loopback-only control port (`CONTROL_PORT`, default
+`3335`) that lets the agent show or hide the managed Chrome window on demand
+(via Win32 `ShowWindow`, scoped to the managed Chrome's process only - never
+the captain's Chrome):
+
+```
+POST http://localhost:3335/hide    # hide the managed Chrome window(s)
+POST http://localhost:3335/show    # show the managed Chrome window(s)
+GET  http://localhost:3335/status  # {"chrome": "OURS|FOREIGN|NONE|...", "visible": "VISIBLE|HIDDEN|NOT_RUNNING"}
+```
+
+- `POST /hide` / `POST /show` return `200` with `HIDDEN <n>` / `SHOWN <n>`
+  (`<n>` is the number of top-level windows toggled), or `404 NOT_RUNNING` when
+the managed Chrome is not running.
+- `GET /status` reports the lifecycle state and window visibility.
+
+Show/hide does not start or stop Chrome, so the single-instance and idle-stop
+invariants are unchanged. The window search targets only the Chrome browser
+process whose command line carries the `--user-data-dir` marker and no
+`--type=` child flag, so the captain's browsing Chrome is never affected.
+
 ## Validating changes
 
 Pure evaluation only - this is the extent of what's been proven so far,
