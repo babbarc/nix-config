@@ -302,18 +302,27 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   config.yaml when it carries one, else from the module's `browser.cdp_url`
   base - Hermes treats the file as optional per-user state its runtime
   creates) and that override is deep-merged on every activation (yq `*`
-  operator, so runtime edits survive), everything else is symlinked. The
-  joy-brain rev is a
+  operator, so runtime edits survive), everything else is symlinked. Exception:
+  the wsl `SOUL.md` is NOT joy-brain's persona - the curated instance
+  (`joyBrain.full = false`) re-pins `~/.hermes/SOUL.md` to the repo-tracked
+  `modules/dev/hermes-soul.md` (the firstmate-delegated browsing + Windows-desktop
+  specialist role) on every activation; the full brain (alps) still symlinks
+  joy-brain's own. The joy-brain rev is a
   single `joyBrainRev` string in `modules/dev/joy-brain.nix` (currently pinned
   to `8c95745461bf7b01dbcc17659853bad62f35bd88`; empty degrades to clone HEAD +
   warn so a missing pin never hard-fails activation).
-- Only the browser skills + `mcp` are symlinked into `~/.hermes/skills/` (single
-  `includedSkills` list of ~11 entries, paths relative to `<clone>/skills/` and
-  able to name nested `category/skill` dirs) - never all ~110 joy-brain skills.
-  joy-brain has a MIXED layout: some top-level dirs are flat skills
+- Only the browser skills, `mcp`, and the whole `security` category are
+  symlinked into `~/.hermes/skills/` (single `includedSkills` list in
+  `modules/dev/joy-brain.nix`, paths relative to `<clone>/skills/`, a bare name
+  being either a flat skill dir or a whole category dir, `a/b` a skill inside a
+  category) - never all ~110 joy-brain skills. `security` is listed as the bare
+  category on purpose: `credential-pre-flight` + `configure-pass-env` and their
+  headless-GPG helper scripts must travel together for non-interactive `pass`
+  access. joy-brain has a MIXED layout: some top-level dirs are flat skills
   (`chrome-devtools-axi`, `debugging-tools`, `lavish`...), others are categories
   holding several skills (`software/*`, `research/*`, `system/*`...). Extend the
-  list, don't copy skills into this repo.
+  list, don't copy skills into this repo. Verify after activation with
+  `hermes skills list` (must be non-zero; discovery follows symlinks).
 - joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
   `http://localhost:8181/mcp` (the QMD sidecar on alps). When the clone
   carries one, it rides along in the seeded config but is OUT OF SCOPE on wsl

@@ -10,13 +10,18 @@ let
   joyBrainRev = "8c95745461bf7b01dbcc17659853bad62f35bd88";
 
   # Curated skill subset (captain scope decision, see README "Hermes agent").
-  # Only browser skills (drive the Windows Chrome via the CDP proxy) plus the
-  # MCP workflow skill are instantiated; every other joy-brain skill stays
-  # private in the clone and is deliberately NOT materialized into ~/.hermes.
-  # This list is the single place to extend. Paths are relative to
+  # The curated instance gets the browser skills (drive the Windows Chrome via
+  # the CDP proxy), the MCP workflow skill, and the `security` category (secure
+  # `pass` credential access for logins/forms); every other joy-brain skill
+  # stays private in the clone and is deliberately NOT materialized into
+  # ~/.hermes. This list is the single place to extend. Paths are relative to
   # <clone>/skills/; a bare name is a flat skill dir, a/b is a skill inside a
   # category dir (both resolve to the same shape under ~/.hermes/skills/).
   includedSkills = [
+    # security: the whole category, not per-skill - credential-pre-flight and
+    # configure-pass-env plus their headless-GPG helper scripts must travel
+    # together for `pass` access to work non-interactively.
+    "security"
     # browser skills
     "chrome-devtools-axi"              # primary browser CLI driver
     "web"                              # blocked-page-recovery (fetch failure recovery)
@@ -31,6 +36,12 @@ let
     # workflow
     "mcp"                              # native-mcp (MCP client: stdio/HTTP servers)
   ];
+
+  # Default-profile SOUL.md for the curated (wsl) instance: the
+  # firstmate-delegated internet-browsing + Windows-desktop specialist role.
+  # Tracked here so a rebuild always restores it; the full brain (alps) keeps
+  # joy-brain's own SOUL.md instead.
+  defaultSoul = ./hermes-soul.md;
 
   # Deep-merged into ~/.hermes/config.yaml at activation. `*` is yq's merge
   # operator (right-hand side wins), so only browser.cdp_url is forced and any
@@ -127,12 +138,26 @@ ${
           && $DRY_RUN_CMD mv "$_home/config.yaml.tmp" "$_home/config.yaml"
       fi
 
-      # Identity + context files: read-only symlinks into the clone.
-      for _f in SOUL.md .hermes.md; do
-        if [ -e "$_src/$_f" ] && [ ! -e "$_home/$_f" ]; then
-          $DRY_RUN_CMD ln -sfn "$_src/$_f" "$_home/$_f"
+      # Context file: read-only symlink into the clone (both instances).
+      if [ -e "$_src/.hermes.md" ] && [ ! -e "$_home/.hermes.md" ]; then
+        $DRY_RUN_CMD ln -sfn "$_src/.hermes.md" "$_home/.hermes.md"
+      fi
+
+      # Default-profile SOUL.md (the agent's identity).
+${
+      if config.joyBrain.full then ''
+        # Full brain (alps): joy-brain's own SOUL.md, seeded once (Hermes then
+        # treats it as writable per-user state).
+        if [ -e "$_src/SOUL.md" ] && [ ! -e "$_home/SOUL.md" ]; then
+          $DRY_RUN_CMD ln -sfn "$_src/SOUL.md" "$_home/SOUL.md"
         fi
-      done
+      '' else ''
+        # Curated instance (wsl): the delegated-specialist role that firstmate
+        # dispatches to is tracked in this repo (modules/dev/hermes-soul.md),
+        # NOT the joy persona, and is re-pinned on every activation.
+        $DRY_RUN_CMD ln -sfn ${defaultSoul} "$_home/SOUL.md"
+      ''
+}
 
       # Private state dirs: symlink whichever of these joy-brain actually has
       # (guarded, so a missing dir is skipped rather than failing activation).

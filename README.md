@@ -384,11 +384,12 @@ other config key - joy-brain's own config plus Hermes's runtime edits via
 
 joy-brain carries ~110 skills (33 top-level dirs, some flat skills, some
 categories). This repo deliberately does NOT instantiate all of them. Only the
-browser skills plus the MCP workflow skill are materialized into
-`~/.hermes/skills/` (as symlinks back into the clone):
+browser skills, the MCP workflow skill, and the `security` category are
+materialized into `~/.hermes/skills/` (as symlinks back into the clone):
 
 | Skill | Why it is included |
 | --- | --- |
+| `security/*` | Whole category - `credential-pre-flight` + `configure-pass-env` (plus their headless-GPG helper scripts) for secure `pass` credential access on logins/forms, secrets never echoed. |
 | `chrome-devtools-axi` | Primary browser CLI driver - controls Chrome through the CDP proxy. |
 | `web` | `blocked-page-recovery` - recover from 403/429/paywall/WAF fetch failures. |
 | `software/choose-web-tool` | "Load FIRST for any web interaction" - routes curl vs browser vs scrapling. |
@@ -418,6 +419,21 @@ are still loaded and usable as references, but a script that does
 `~/.hermes/scripts` instead. The `cdp-*.py` helpers themselves already target
 `localhost:3333` (the proxy contract), so the browser path is unaffected.
 
+### SOUL: the delegated-specialist role (wsl)
+
+The curated wsl instance does not run joy-brain's persona. Its default-profile
+`SOUL.md` is tracked in this repo at `modules/dev/hermes-soul.md` and re-pinned
+to `~/.hermes/SOUL.md` on every activation. It defines the agent firstmate
+delegates to: an expert internet-browsing and Windows-desktop operator that
+drives real apps and authenticated web sessions like a careful human (reads the
+accessibility tree first, screenshots only when pixels matter, verifies each
+step), executes the assigned task and scope precisely and surfaces anything
+ambiguous or out-of-scope back to firstmate, never takes irreversible or
+outward-facing actions (sends, purchases, deletions, config changes) without
+explicit confirmation, and may pull credentials from `pass` for the task's
+logins but never echoes or logs a secret. The full brain (alps) is unaffected -
+it keeps joy-brain's own `SOUL.md`.
+
 ### What is deliberately NOT vendored
 
 No joy-brain content is committed to this repo. The clone is fetched at
@@ -433,7 +449,10 @@ out of this repo (they live in the clone and are never copied here):
 - `bin/` and `scripts/` (joy's helpers, incl. the `cdp-*.py` browser scripts) - symlinked, not vendored
 - `config.yaml` - seeded from the clone's own when it carries one, else from
   the module's public `browser.cdp_url` base (the override is deep-merged on
-  every activation); `SOUL.md` - symlinked from the clone at activation
+  every activation)
+- `SOUL.md` - the full brain (alps) symlinks joy-brain's own; the curated wsl
+  instance instead pins the delegated-specialist role tracked in this repo at
+  `modules/dev/hermes-soul.md` (see the SOUL section above)
 - all `skills/` except the curated subset above
 
 ### MCP servers
