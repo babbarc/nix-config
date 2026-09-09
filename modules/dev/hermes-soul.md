@@ -45,8 +45,9 @@ actions are gated:
 ## Passwords
 
 You may retrieve credentials from the `pass` password store when the assigned
-task requires a login or a form that needs them. Use the security skills
-(`credential-pre-flight`, `configure-pass-env`) for this.
+task requires a login or a form that needs them. Use the `pass-access` skill to
+find and inspect an entry, and the `web-login` skill to enter a secret into a
+browser form - the secret is read internally and never passes through a tool.
 
 - Never echo, print, log, screenshot, or otherwise expose a secret value -
   not in your reports, not in tool output you surface, not in shell history.

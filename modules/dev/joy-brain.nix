@@ -9,33 +9,17 @@ let
   # which keeps a fresh host working but is NOT the intended steady state.
   joyBrainRev = "8c95745461bf7b01dbcc17659853bad62f35bd88";
 
-  # Curated skill subset (captain scope decision, see README "Hermes agent").
-  # The curated instance gets the browser skills (drive the Windows Chrome via
-  # the CDP proxy), the MCP workflow skill, and the `security` category (secure
-  # `pass` credential access for logins/forms); every other joy-brain skill
-  # stays private in the clone and is deliberately NOT materialized into
-  # ~/.hermes. This list is the single place to extend. Paths are relative to
-  # <clone>/skills/; a bare name is a flat skill dir, a/b is a skill inside a
-  # category dir (both resolve to the same shape under ~/.hermes/skills/).
-  includedSkills = [
-    # security: the whole category, not per-skill - credential-pre-flight and
-    # configure-pass-env plus their headless-GPG helper scripts must travel
-    # together for `pass` access to work non-interactively.
-    "security"
-    # browser skills
-    "chrome-devtools-axi"              # primary browser CLI driver
-    "web"                              # blocked-page-recovery (fetch failure recovery)
-    "software/choose-web-tool"         # load first for web: curl/browser/scrapling
-    "software/operate-browser"         # built-in browser_navigate/click/type/scroll
-    "software/preserve-browser-session" # CDP session preservation pattern
-    "software/use-cdp-protocol"        # raw CDP via the browser_cdp tool
-    "software/run-cdp-scripts"         # cdp-*.py CLI scripts (target localhost:3333)
-    "software/recaptcha-solver"        # reCAPTCHA v2 challenges
-    "research/scrapling"               # stealth browser scraping / Cloudflare bypass
-    "research/duckduckgo-search"       # free web search (no API key)
-    # workflow
-    "mcp"                              # native-mcp (MCP client: stdio/HTTP servers)
-  ];
+  # Curated skill subset from joy-brain for the wsl instance.
+  #
+  # CUTOVER (captain decision, 2026-09-09): the browser and `security` skills
+  # this instance used to borrow from joy-brain are now purpose-built,
+  # AXI-shaped, and vendored in this repo under modules/dev/hermes-skills/
+  # (wired by modules/dev/hermes-skills.nix). This list is therefore empty -
+  # the curated instance materializes NO joy-brain skills. It stays as the
+  # single, documented place to re-add a joy-brain skill if a future task on
+  # this instance genuinely needs one. Paths are relative to <clone>/skills/;
+  # a bare name is a flat skill dir, a/b is a skill inside a category dir.
+  includedSkills = [ ];
 
   # Default-profile SOUL.md for the curated (wsl) instance: the
   # firstmate-delegated internet-browsing + Windows-desktop specialist role.
@@ -185,8 +169,25 @@ ${
           $DRY_RUN_CMD ln -sfn "$_src/skills" "$_home/skills"
         fi
       '' else ''
-        # Skills: ONLY the curated subset (never all of joy-brain/skills).
+        # Curated instance (wsl): the browser + `security` skills that used to
+        # be symlinked from joy-brain are now replaced by the purpose-built,
+        # repo-vendored set in modules/dev/hermes-skills/ (materialized by
+        # modules/dev/hermes-skills.nix, which runs right after this step).
+        # `includedSkills` is empty after the cutover.
         $DRY_RUN_CMD mkdir -p "$_home/skills"
+
+        # Drop any stale symlink from a previous generation that still points
+        # into the joy-brain clone, so `hermes skills list` reflects only the
+        # new vendored set. Only clone-targeted links are removed - never the
+        # repo-vendored skills or anything the agent created itself - then any
+        # category dir (software/, research/) left empty is pruned.
+        find "$_home/skills" -maxdepth 2 -type l 2>/dev/null | while read -r _link; do
+          case "$(readlink "$_link" 2>/dev/null)" in
+            "$_src/skills/"*) $DRY_RUN_CMD rm -f "$_link" ;;
+          esac
+        done
+        find "$_home/skills" -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true
+${lib.optionalString (includedSkills != [ ]) ''
         for _s in ${lib.escapeShellArgs includedSkills}; do
           if [ -d "$_src/skills/$_s" ]; then
             $DRY_RUN_CMD mkdir -p "$(dirname "$_home/skills/$_s")"
@@ -195,7 +196,7 @@ ${
             echo "warning: joy-brain skill '$_s' not found under $_src/skills - not instantiated" >&2
           fi
         done
-      ''
+''}      ''
     }
     '';
   };

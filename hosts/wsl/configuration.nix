@@ -202,6 +202,13 @@ in
       # modules/dev/joy-brain.nix.
       ../../modules/dev/hermes-agent.nix
       ../../modules/dev/joy-brain.nix
+      # Purpose-built, AXI-shaped Hermes skill set (browse / web-login /
+      # pass-access / operate-desktop / recover-blocked-page / delegated-task),
+      # vendored in this repo and symlinked into ~/.hermes/skills/. Replaces the
+      # browser + security skills the curated joy-brain instance used to borrow
+      # (joy-brain.nix `includedSkills` is now empty). wsl-only. See
+      # modules/dev/hermes-skills.nix.
+      ../../modules/dev/hermes-skills.nix
     ];
   };
 }

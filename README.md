@@ -330,44 +330,43 @@ proxy's own README section). The merge only forces `browser.cdp_url`; every
 other config key - joy-brain's own config plus Hermes's runtime edits via
 `hermes config set` / the TUI - is preserved.
 
-### Skills: a curated subset, not the whole joy-brain
+### Skills: a purpose-built set, vendored in this repo
 
-joy-brain carries ~110 skills (33 top-level dirs, some flat skills, some
-categories). This repo deliberately does NOT instantiate all of them. Only the
-browser skills, the MCP workflow skill, and the `security` category are
-materialized into `~/.hermes/skills/` (as symlinks back into the clone):
+The curated wsl instance no longer borrows any skills from joy-brain. It runs a
+small, purpose-built, [AXI](https://axi.md/)-shaped set tailored to the
+firstmate-delegated role, **vendored in this repo** under
+`modules/dev/hermes-skills/<skill>/SKILL.md` (same posture as
+`modules/dev/hermes-soul.md`) and symlinked into `~/.hermes/skills/` by
+`modules/dev/hermes-skills.nix`:
 
-| Skill | Why it is included |
+| Skill | Purpose |
 | --- | --- |
-| `security/*` | Whole category - `credential-pre-flight` + `configure-pass-env` (plus their headless-GPG helper scripts) for secure `pass` credential access on logins/forms, secrets never echoed. |
-| `chrome-devtools-axi` | Primary browser CLI driver - controls Chrome through the CDP proxy. |
-| `web` | `blocked-page-recovery` - recover from 403/429/paywall/WAF fetch failures. |
-| `software/choose-web-tool` | "Load FIRST for any web interaction" - routes curl vs browser vs scrapling. |
-| `software/operate-browser` | Built-in `browser_navigate`/`click`/`type`/`scroll` tools. |
-| `software/preserve-browser-session` | CDP session-preservation pattern (matches the proxy's persistent Chrome). |
-| `software/use-cdp-protocol` | Raw CDP commands via the `browser_cdp` tool. |
-| `software/run-cdp-scripts` | `cdp-*.py` CLI helpers (list tabs / eval / navigate / screenshot). |
-| `software/recaptcha-solver` | reCAPTCHA v2 challenges on real sites. |
-| `research/scrapling` | Stealth browser scraping / Cloudflare bypass. |
-| `research/duckduckgo-search` | Free web search (no API key) - the default search path. |
-| `mcp` | `native-mcp` - connect/register MCP servers (stdio/HTTP). |
+| `browse` | Drive the captain's real Windows Chrome for authenticated web tasks via the `chrome-devtools-axi` CLI over the CDP proxy; curl-vs-browser routing; proxy warm-up; verify-each-step discipline; stop points; a lightweight web-search route. |
+| `web-login` | Zero-exposure credential/OTP entry into a browser form - the secret is read from `pass` internally, never through a tool parameter. Owns the entire login surface. |
+| `pass-access` | Safe `pass` store access - find / ls / inspect / otp / doctor - metadata only, the secret never reaches stdout. |
+| `operate-desktop` | Guide (no CLI) for operating the Windows desktop through the `cua-driver` MCP tools with an observe -> act -> verify loop. |
+| `recover-blocked-page` | Recover a 403/429/paywall/WAF page via the archive ladder (Wayback -> archive.today -> reader -> API pivot -> browser), with provenance. |
+| `delegated-task` | The operating contract as a checklist - scope pre-flight, the irreversible-action gate, secret hygiene, outcome-report format. |
 
-Everything else in joy-brain's `skills/` is deliberately excluded (not copied,
-not symlinked) and stays private in the clone - including all the
-coding/kanban/finance/travel/home/legal/health/contacts/communication
-categories, the `.archive/` skill, and the non-browser `software/*` skills
-(`coding-agent-orchestrator`, `gemini-web-images`,
-`signal-noise-classifier`). The list lives in a single `includedSkills` list at
-the top of `modules/dev/joy-brain.nix`; extend it there if a future task needs
-another joy-brain skill, rather than copying the skill into this repo.
+Skill discovery needs **no** trust/enable step: Hermes scans
+`~/.hermes/skills/` recursively and any dir with a `SKILL.md` registers as a
+"local" skill (`hermes skills list`, source `local`). `hermes skills trust` is
+only for repo-local project skills (`./.hermes/skills` in a git checkout).
 
-Path caveat: several joy-brain skills hard-code `/opt/data/...` (the
-production container's `HERMES_HOME`). On the wsl host that same content lives
-under `~/.hermes`, so those references need adapting at use time - the skills
-are still loaded and usable as references, but a script that does
-`sys.path.insert(0, '/opt/data/scripts')` must be pointed at
-`~/.hermes/scripts` instead. The `cdp-*.py` helpers themselves already target
-`localhost:3333` (the proxy contract), so the browser path is unaffected.
+Native toolsets stay enabled: Hermes's built-in `browser_*` tools remain as a
+fallback behind `browse`, and native `computer_use` remains alongside the
+`cua-driver` MCP path behind `operate-desktop` (captain decisions, 2026-09-09).
+
+The wrapper binaries the SKILL.md files point at (`hermes-web-login`,
+`pass-axi`, `recover-page`) and the pinned/proxy-wired `chrome-devtools-axi`
+land in follow-up changes; each SKILL.md documents the interim (no-wrapper)
+path. Standalone web search is currently a route inside `browse`; a first-class
+`search` path is a planned follow-up.
+
+joy-brain's own `includedSkills` list (`modules/dev/joy-brain.nix`) is now
+empty. It stays as the single documented place to re-add a joy-brain skill if a
+future task on this instance genuinely needs one, rather than copying it here.
+The alps full brain is unaffected - it keeps joy-brain's entire skill tree.
 
 ### SOUL: the delegated-specialist role (wsl)
 
@@ -388,22 +387,27 @@ it keeps joy-brain's own `SOUL.md`.
 
 No joy-brain content is committed to this repo. The clone is fetched at
 activation from the private gitea SSH URL, exactly like `~/.firstmate` in
-`modules/dev/firstmate.nix`. This repo only carries the clone URL, the pin, the
-curated skill list and the `browser.cdp_url` wiring. In particular these stay
-out of this repo (they live in the clone and are never copied here):
+`modules/dev/firstmate.nix`. This repo only carries the clone URL, the pin and
+the `browser.cdp_url` wiring (the curated instance's skills are now
+repo-vendored - see above - not borrowed from the clone). In particular these
+stay out of this repo (they live in the clone and are never copied here):
 
 - `memory/` (personal memory) and `memories/`
 - `contacts/` (private contact database)
 - `profiles/` (named profiles)
 - `plugins/` (e.g. the approval-gates plugin) - symlinked at activation, not vendored
-- `bin/` and `scripts/` (joy's helpers, incl. the `cdp-*.py` browser scripts) - symlinked, not vendored
+- `bin/` and `scripts/` (joy's helpers, incl. `pass-to`/`pass-inspect`/`pass-env`
+  and the `cdp-*.py` browser scripts) - symlinked, not vendored; the vendored
+  `pass-access` / `web-login` skills still use the `~/.hermes/bin` helpers
 - `config.yaml` - seeded from the clone's own when it carries one, else from
   the module's public `browser.cdp_url` base (the override is deep-merged on
   every activation)
 - `SOUL.md` - the full brain (alps) symlinks joy-brain's own; the curated wsl
   instance instead pins the delegated-specialist role tracked in this repo at
   `modules/dev/hermes-soul.md` (see the SOUL section above)
-- all `skills/` except the curated subset above
+- all of `skills/` - the curated instance runs the repo-vendored set instead
+  (see "Skills: a purpose-built set" above); the alps full brain still symlinks
+  joy-brain's entire tree
 
 ### MCP servers
 
