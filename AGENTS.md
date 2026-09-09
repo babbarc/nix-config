@@ -236,12 +236,17 @@ quadlet runs the proxy under rootless podman (host networking) and exposes
 launches the captain's Windows Chrome on `127.0.0.1:9222` and stops it after
 `IDLE_TIMEOUT`. It owns exactly one Chrome via a
 `--user-data-dir=C:\Users\Public\Hermes\ChromeProfile` marker and never touches
-the captain's browsing Chrome. The module also declares `pkgs.podman` itself
-(the wsl host has no distro podman; the laptop-scoped `modules/podman.nix` stays
-out of wsl/server), so after the first podman-installing rebuild run
-`systemctl --user daemon-reload` once and confirm
-`browser-proxy-windows.service` is active (WantedBy=default.target starts it at
-session start).
+the captain's browsing Chrome. podman itself is declared at the SYSTEM level
+(`environment.systemPackages = [ pkgs.podman ]` + `systemd.packages =
+[ pkgs.podman ]` in hosts/wsl/configuration.nix), NOT in this module: podman's
+user quadlet generator (lib/systemd/user-generators/) is only wired into
+systemd's --user generator search path when podman is installed system-wide
+(`systemd.packages` is what links it into /etc/systemd/user-generators/;
+environment.systemPackages alone leaves that dir empty), so a
+home.packages-level podman drops the *.container files but never generates the
+unit. After the first podman-installing rebuild run `systemctl --user
+daemon-reload` once and confirm `browser-proxy-windows.service` is active
+(WantedBy=default.target, Restart=on-failure starts it at session start).
 
 Sharp edges that forced the reverse-tunnel design (all verified live):
 - Chrome 152 removed `--remote-debugging-address` (string absent from chrome.dll;

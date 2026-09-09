@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ ... }:
 {
   # Windows-Chrome variant of the lazy browser proxy for the `wsl` host (see
   # containers/systemd/browser-proxy-windows.container and
@@ -18,12 +18,14 @@
   # The container image (`localhost/browser-proxy:latest`, the same image the
   # firstmate proxy uses, which ships /usr/local/bin/python3) is built
   # manually out of band, exactly like the other browser-proxy quadlets; this
-  # module only drops the files. It also declares podman itself so the
-  # rootless quadlet generator actually runs on the wsl host (which has no
-  # distro podman) - deliberately NOT the laptop-scoped modules/podman.nix,
-  # which stays out of wsl/server.
-  home.packages = [ pkgs.podman ];
-
+  # module only drops the files. podman itself is declared at the SYSTEM level
+  # in hosts/wsl/configuration.nix (environment.systemPackages + systemd.packages),
+  # not here: podman's user quadlet generator (lib/systemd/user-generators/) is
+  # only wired into systemd's --user generator search path when podman is
+  # installed system-wide, so a home.packages-level podman drops the *.container
+  # files but never generates browser-proxy-windows.service. The system-level
+  # podman provides both the CLI and the generator, so no laptop-scoped
+  # modules/podman.nix import is needed on wsl/server either.
   xdg.configFile."containers/systemd/browser-proxy-windows.container".source =
     ../../containers/systemd/browser-proxy-windows.container;
   xdg.configFile."containers/systemd/browser-proxy-windows.py".source =

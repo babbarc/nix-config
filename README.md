@@ -245,14 +245,20 @@ networking) that drops the proxy script
 `~/.config/containers/systemd/` via `modules/dev/browser-proxy-windows.nix`,
 imported only by `hosts/wsl/configuration.nix` (it needs WSL interop, so it is
 deliberately not in the shared `modules/dev` list used by the Arch hosts).
-That module also declares `pkgs.podman` itself - the WSL host has no distro
-podman, and the laptop-scoped `modules/podman.nix` is deliberately not imported
-on wsl - so the quadlet generator actually runs.
+podman itself is declared at the SYSTEM level in `hosts/wsl/configuration.nix`
+(`environment.systemPackages` + `systemd.packages`) - the WSL host has no
+distro podman, and podman's user quadlet generator is only wired into systemd's
+`--user` generator search path when podman is installed system-wide
+(`systemd.packages` is what links it into `/etc/systemd/user-generators/`;
+`environment.systemPackages` alone leaves that directory empty), so a
+home.packages-level podman drops the quadlet files but never generates the
+unit. The laptop-scoped `modules/podman.nix` is deliberately not imported on
+wsl.
 
 One-time activation on a podman-less host: after the first rebuild that installs
-podman, the user quadlet generator needs a reload before it picks up the unit,
-and the unit (WantedBy=default.target, Restart=on-failure) then starts on the
-next session start:
+podman at the system level, the user quadlet generator needs a reload before it
+picks up the unit, and the unit (WantedBy=default.target, Restart=on-failure) then
+auto-starts on the next session start:
 
     systemctl --user daemon-reload
     systemctl --user status browser-proxy-windows.service
