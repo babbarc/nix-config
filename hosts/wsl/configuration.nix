@@ -66,9 +66,11 @@ in
   wsl.enable = true;
   wsl.defaultUser = username;
 
-  # Windows interop for the windows-mcp bridge (modules/dev/windows-mcp.nix):
-  # the WSL-side harness spawns powershell.exe/pwsh.exe and speaks MCP over
-  # its stdio, so Windows executables must be runnable and on PATH from WSL.
+  # Windows interop for the Hermes Cua desktop driver
+  # (modules/dev/hermes-agent.nix, hermesAgent.cuaDriver) and the
+  # Windows-Chrome CDP proxy (modules/dev/browser-proxy-windows.nix): both
+  # reach the Windows side by spawning powershell.exe, so Windows executables
+  # must be runnable and on PATH from WSL.
   # Most of this is NixOS-WSL's own default, but it is pinned explicitly so a
   # fresh WSL build reproduces the working interop, and the binfmt_misc
   # registration (wsl.interop.register) is the opt-in half - without it, any
@@ -179,13 +181,12 @@ in
 
     services.gpg-agent.pinentry.package = pkgs.pinentry-curses;
 
-    # Windows-MCP GUI-control bridge: install ONE extra harness alongside pi
-    # (always present via modules/dev/pi.nix) and register the windows-mcp
-    # stdio server in it. Pick the harness via the per-machine env file
-    # (DOTFILES_WINDOWS_MCP_HARNESS, see env.example) or hardcode it here -
-    # "none" (the default) installs nothing. See README "Windows-MCP bridge"
-    # and modules/dev/windows-mcp.nix.
-    windowsMcp.harness = dotfilesEnv.DOTFILES_WINDOWS_MCP_HARNESS or "none";
+    # Hermes desktop control: register cua-driver (installed on Windows by
+    # cua-driver-bootstrap.ps1) as a Hermes MCP server at activation, so the
+    # Hermes agent here can operate the Windows desktop over powershell.exe
+    # interop. See modules/dev/hermes-agent.nix and README "Hermes desktop
+    # control (Cua driver)".
+    hermesAgent.cuaDriver = true;
 
     imports = [
       ../../modules/dev

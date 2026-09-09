@@ -9,6 +9,14 @@ let
   hermesRepo = "https://github.com/NousResearch/hermes-agent.git";
   checkout = "${config.home.homeDirectory}/.local/share/hermes-agent";
   venv = "${checkout}/venv";
+  hermesHome = "${config.home.homeDirectory}/.hermes";
+
+  # Windows path of the Cua computer-use driver, installed per-user (no admin,
+  # autostart off) by cua-driver-bootstrap.ps1 on the Windows host. This is
+  # the captain's Windows user; %LOCALAPPDATA%\Programs\Cua is the fixed
+  # install root the cua.ai installer uses. Change the `palla` segment for a
+  # different Windows user.
+  cuaDriverExe = ''C:\Users\palla\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe'';
 in
 {
   options.hermesAgent = {
@@ -18,9 +26,15 @@ in
     # NO shared modules (hosts/hermes/home.nix carries only its own modules),
     # so it opts into declaring the full runtime dependency set itself.
     standaloneDeps = lib.mkEnableOption "declare the full Hermes runtime dependency set (for hosts that do not import the shared modules/dev list)";
+
+    # wsl-only: the Hermes agent there operates the Windows desktop through
+    # cua-driver (registered as a Hermes MCP server, reached over
+    # powershell.exe interop). Off elsewhere - the alps host has no Windows
+    # side. See README "Hermes desktop control (Cua driver)".
+    cuaDriver = lib.mkEnableOption "register the Cua computer-use driver as a Hermes MCP server (wsl host only)";
   };
 
-  config = {
+  config = lib.mkMerge [ {
     # Hermes Agent engine, imported by two hosts:
     #   - wsl (hosts/wsl/configuration.nix, alongside modules/dev/joy-brain.nix)
     #   - alps hermes (hosts/hermes/home.nix, alongside modules/dev/joy-brain.nix
@@ -76,7 +90,7 @@ in
     ];
 
     home.sessionVariables = {
-      HERMES_HOME = "${config.home.homeDirectory}/.hermes";
+      HERMES_HOME = hermesHome;
     };
 
     home.activation.hermesAgentInstall = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
@@ -117,5 +131,34 @@ in
         $DRY_RUN_CMD ln -sfn "${venv}/bin/hermes" "${config.home.homeDirectory}/.local/bin/hermes"
       fi
     '';
-  };
+  }
+
+  (lib.mkIf config.hermesAgent.cuaDriver {
+    # Register the Cua computer-use driver as a Hermes MCP server so the Hermes
+    # agent on this host can operate the Windows desktop (screenshot,
+    # mouse/keyboard, window control - e.g. Lightroom). cua-driver.exe is
+    # installed on the Windows side by cua-driver-bootstrap.ps1 (per-user, no
+    # admin); Hermes reaches it over WSL interop by spawning powershell.exe.
+    # GUI/desktop only - no shell/filesystem/registry (reachable directly from
+    # WSL when needed). Runs after joyBrainInstantiate so the seeded
+    # ~/.hermes/config.yaml is the file that gets the new mcp_servers entry.
+    # Idempotent (skip when already present) and warn-not-die, matching the
+    # repo's other activation steps.
+    home.activation.hermesCuaDriver = lib.hm.dag.entryAfter [ "joyBrainInstantiate" ] ''
+      PATH="$HOME/.local/bin:$PATH"
+      export HERMES_HOME=${lib.escapeShellArg hermesHome}
+      _cfg="${hermesHome}/config.yaml"
+      if ! command -v hermes >/dev/null 2>&1; then
+        echo "warning: hermes CLI not on PATH yet - cua-driver MCP registration skipped (rerun activation once hermes has installed)" >&2
+      elif [ -f "$_cfg" ] && grep -q 'cua-driver' "$_cfg" 2>/dev/null; then
+        : # already registered
+      else
+        $DRY_RUN_CMD hermes mcp add cua-driver \
+          --command powershell.exe \
+          --args -NoProfile -Command "& '${cuaDriverExe}' mcp" \
+          || echo "warning: could not register cua-driver as a Hermes MCP server - retry later (after cua-driver-bootstrap.ps1 on Windows) with: hermes mcp add cua-driver --command powershell.exe --args -NoProfile -Command \"& '${cuaDriverExe}' mcp\"" >&2
+      fi
+    '';
+  })
+  ];
 }

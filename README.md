@@ -146,98 +146,47 @@ which can't read root-only key material. The `wsl` host is unaffected and
 uses NixOS's own default (`config.services.openssh.hostKeys`). Full
 rationale in `AGENTS.md`'s "agenix bootstrap identity" section.
 
-## Windows-MCP bridge
+## Hermes desktop control (Cua driver)
 
-The Windows-MCP GUI-control bridge lets an agent running in the `wsl` host
-drive the Windows machine (screenshots, mouse/keyboard, PowerShell,
-file/registry access). The server, [windows-mcp](https://github.com/CursorTouch/Windows-MCP),
-runs on the Windows host; the WSL side reaches it over stdio by spawning
-`powershell.exe` (WSL interop) - no ports, firewall rules, or auth.
+The `wsl` host's Hermes agent operates the Windows desktop (screenshots,
+mouse/keyboard, window control - e.g. Lightroom) through
+[cua-driver](https://cua.ai/cua-driver), registered as a Hermes MCP server.
+The driver runs on the Windows host; Hermes reaches it over WSL interop by
+spawning `powershell.exe` - no ports, firewall rules, or auth.
 
-Two halves, one of which is Nix-managed:
+cua-driver is GUI/desktop-only: it has no shell, filesystem, or registry
+tools. Those are reachable directly from WSL (`powershell.exe`, `/mnt/c`)
+when needed - dropping them is a deliberate trade for the simpler driver
+(this replaces the earlier windows-mcp bridge).
 
-- **Windows side** (not Nix-managed, because it runs on Windows): run the
-  checked-in bootstrap script once from Windows PowerShell. It installs `uv`
-  (which provides `uvx`) and pre-fetches `windows-mcp` from PyPI:
+Two halves:
+
+- **Windows side** (not Nix-managed - it runs on Windows): run the
+  checked-in bootstrap once from Windows PowerShell. It installs cua-driver
+  per-user (no admin) with autostart disabled, via the official
+  `https://cua.ai/driver/install.ps1` installer:
 
   ```powershell
-  powershell.exe -ExecutionPolicy Bypass -File .\windows-mcp-bootstrap.ps1
+  powershell.exe -ExecutionPolicy Bypass -File .\cua-driver-bootstrap.ps1
   ```
+
+  Installed path: `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`.
 
 - **WSL/NixOS side** (declarative): `hosts/wsl/configuration.nix` pins the
   WSL interop settings (`wsl.interop.register`, `wsl.wslConf.interop`, ...)
-  so `powershell.exe`/`pwsh.exe` are reachable, and
-  `modules/dev/windows-mcp.nix` exposes the single option that controls the
-  whole bridge:
+  so `powershell.exe` is reachable and sets `hermesAgent.cuaDriver = true`.
+  `modules/dev/hermes-agent.nix` then registers the driver with Hermes at
+  activation:
 
-  ```nix
-  windowsMcp.harness = "claude"; # one harness, chosen explicitly
+  ```sh
+  hermes mcp add cua-driver --command powershell.exe \
+    --args -NoProfile -Command "& '<cua-driver.exe path>' mcp"
   ```
 
-  `pi` is always present on every host (`modules/dev/pi.nix`) and is the
-  default runtime; the selector adds ONE additional GUI-control harness
-  alongside it and registers two stdio MCP servers in it - the windows-mcp
-  bridge and `hermes` (the Hermes agent gateway, entrypoint
-  `hermes mcp serve`). It never installs or registers `pi`.
-
-  `herdr` is the runtime backend that spawns and manages each harness pane.
-  It is installed declaratively too (`modules/dev/herdr.nix`, pinned to
-  v0.8.2 via `fetchurl` - there is no nixpkgs package; the single binary is
-  fetched from GitHub releases and self-updates via `herdr update` at
-  runtime). That module also installs the herdr integration for every
-  supported harness (pi, claude, codex, kimi, opencode, grok), so each pane
-  reports native busy/idle/blocked state and session identity to firstmate's
-  herdr backend out of the box.
-
-  Fish is the default shell on all three hosts (`modules/dev/fish.nix`). On
-  `wsl`, `programs.fish.enable` + `home-manager.useUserPackages` put fish at
-  `/etc/profiles/per-user/<user>/bin/fish`, which is the path herdr's
-  chezmoi-managed `default_shell` uses; the integration hook scripts are
-  POSIX `sh` + `python3` (invoked via explicit `bash`/`sh`), so they work
-  regardless of the pane shell being fish. Their dependencies (`python3`,
-  `jq`) are already declared on every host via `modules/dev/dev-toolchains.nix`
-  and `modules/dev/firstmate.nix`.
-
-### Choosing the harness
-
-Set `windowsMcp.harness` to one of the supported values below. The normal
-way is the per-machine env file (see "Per-machine values"), rebuilt with
-`setup.sh`; you can also hardcode it in `hosts/wsl/configuration.nix`:
-
-```sh
-# ~/.config/dotfiles/env
-DOTFILES_WINDOWS_MCP_HARNESS=claude
-```
-
-Supported harnesses (each entry's MCP registration path was verified against
-that harness's real config format):
-
-| Harness  | Install path                                  | windows-mcp registration                                   | Tradeoffs |
-| -------- | --------------------------------------------- | ---------------------------------------------------------- | --------- |
-| `claude` | npm `@anthropic-ai/claude-code` (pinned)        | user scope `~/.claude.json` via `claude mcp add-json`       | Most mature MCP client; needs an Anthropic account. Not in nixpkgs as a free package (non-free license), so installed once under `~/.local` via npm - matching the captain's existing native install. Registration goes through Claude Code's own CLI because `.claude.json` is its state file. |
-| `codex`  | nixpkgs `codex`                               | `[mcp_servers.windows]` in `~/.codex/config.toml`           | OpenAI's agent; needs ChatGPT/OpenAI auth. No MCP-add CLI, so the module appends the TOML block (preserves other settings). |
-| `opencode` | nixpkgs `opencode`                          | `mcp.windows` in `~/.config/opencode/opencode.json`          | Open source, multi-provider. Config is merged with jq so other keys survive. |
-| `grok`   | official npm `@xai-official/grok` (pinned)    | `[mcp_servers.windows]` in `~/.grok/config.toml`             | xAI's agent; not in nixpkgs, so installed once under `~/.local` via npm. Needs an xAI account. |
-| `kimi`   | official single-binary installer (pinned)     | `mcpServers.windows` in `~/.kimi-code/mcp.json`              | Moonshot's agent; not in nixpkgs, installed once under `~/.local` via the official installer. `mcp.json` is dedicated to MCP, so it is managed as a whole file. |
-
-### Delegating to Hermes over MCP
-
-The same selector also registers a `hermes` stdio MCP server (command
-`hermes`, args `["mcp", "serve"]`) in the chosen harness, using the same
-per-harness format as the windows-mcp entry in the table above. That is how
-firstmate delegates a task to the Hermes agent: spawn a crewmate on the
-chosen harness and have it call the `hermes` MCP server. `hermes mcp serve`
-runs Hermes as a stdio MCP server that exposes its conversations (list/read
-messages, send messages, poll events, manage approvals) to the calling
-agent - no transport flags, no ports.
-
-`cursor` was evaluated and deliberately excluded: it supports MCP clients
-(`~/.cursor/mcp.json`) but is a Windows GUI IDE, not a WSL-side CLI harness,
-so it cannot be installed or registered declaratively on the `wsl` host.
-
-Changing the harness later is just editing `DOTFILES_WINDOWS_MCP_HARNESS` and
-rebuilding; the old harness's registration is left in place (only the chosen
-one is written) so you can keep both around, or remove the other manually.
+  The registration is idempotent (skipped when `~/.hermes/config.yaml`
+  already lists `cua-driver`) and warn-not-die, matching the repo's other
+  activation steps. A fresh host is ready after a rebuild + one bootstrap
+  run, in either order.
 
 ## Windows Chrome CDP proxy
 
@@ -348,10 +297,11 @@ because the laptop/server hosts run no Hermes agent and no WSL interop:
   adopted: it drags in five extra flake inputs and, with no public binary
   cache, multi-hour from-source builds on a fresh host - this repo's
   install-at-activation convention (see `firstmate.nix`, `herdr.nix`) is the
-  smaller, consistent fit. `hermes mcp serve` is the server entrypoint: it
-  runs Hermes as a stdio MCP server (no transport flags), which
-  `modules/dev/windows-mcp.nix` registers into the chosen
-  `windowsMcp.harness` - see "Delegating to Hermes over MCP".
+  smaller, consistent fit. On the `wsl` host this module also registers the
+  Cua desktop driver as a Hermes MCP server (`hermesAgent.cuaDriver`) - see
+  "Hermes desktop control (Cua driver)". `hermes mcp serve` (Hermes as a
+  stdio MCP server, no transport flags) still exists as an entrypoint but
+  nothing in this repo registers it.
 - `modules/dev/joy-brain.nix` - the assistant. Clones the PRIVATE
   `ssh://git@alps:2222/babbarc/joy-brain.git` (the captain's full Hermes home)
   at activation into `~/.local/share/joy-brain` and materializes `~/.hermes`
@@ -480,7 +430,7 @@ secrets.nix             agenix secret -> public-key mapping
 gpg-keys/               public GPG key material imported on activation
 env.example             template for the per-machine ~/.config/dotfiles/env
 setup.sh                guided bootstrap entry point (see "Bootstrap" above)
-windows-mcp-bootstrap.ps1  Windows-side one-time setup for the windows-mcp bridge
+cua-driver-bootstrap.ps1   Windows-side one-time setup for the Hermes Cua desktop driver
 patches/                local patches applied to inputs, if any
 ```
 
