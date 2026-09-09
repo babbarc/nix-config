@@ -357,9 +357,15 @@ Native toolsets stay enabled: Hermes's built-in `browser_*` tools remain as a
 fallback behind `browse`, and native `computer_use` remains alongside the
 `cua-driver` MCP path behind `operate-desktop` (captain decisions, 2026-09-09).
 
-The wrapper binaries the SKILL.md files point at (`hermes-web-login`,
-`pass-axi`, `recover-page`) and the pinned/proxy-wired `chrome-devtools-axi`
-land in follow-up changes; each SKILL.md documents the interim (no-wrapper)
+`pass-access`'s `pass-axi` CLI is packaged by `hermes-skills.nix`
+(`pkgs.writeShellApplication`, on PATH) and reads the captain's real store at
+`~/.password-store`. It is metadata-only by construction - there is no
+`show`/`get`/`cat`; `inspect` and `otp` decrypt only through the
+`~/.hermes/bin` helpers plus the `pass-otp` extension, and `doctor` prints a
+GPG/env/`.gpg-id`/secret-key/decrypt-probe pass-fail matrix. The remaining
+wrapper binaries the SKILL.md files point at (`hermes-web-login`,
+`recover-page`) and the pinned/proxy-wired `chrome-devtools-axi` land in
+follow-up changes; those SKILL.md files document the interim (no-wrapper)
 path. Standalone web search is currently a route inside `browse`; a first-class
 `search` path is a planned follow-up.
 

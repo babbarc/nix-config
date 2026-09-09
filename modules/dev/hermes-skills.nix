@@ -14,13 +14,39 @@ let
   # the alps full brain (hosts/hermes/home.nix), which keeps joy-brain's own
   # skill tree.
   #
-  # This module does the skill materialization only. The wrapper binaries the
-  # SKILL.md files point at (hermes-web-login, pass-axi, recover-page) and the
-  # chrome-devtools-axi proxy env/warm-up wrapper land in follow-up changes;
-  # each SKILL.md already documents the interim (no-wrapper) path.
+  # This module materializes the skills and packages the CLIs they call. The
+  # remaining wrapper binaries the SKILL.md files point at (hermes-web-login,
+  # recover-page) and the chrome-devtools-axi proxy env/warm-up wrapper land in
+  # follow-up changes; those SKILL.md files still document their interim path.
   skillsSrc = ./hermes-skills;
   skillNames = builtins.attrNames
     (lib.filterAttrs (_: t: t == "directory") (builtins.readDir skillsSrc));
+
+  # pass-axi: the safe-by-construction `pass` access CLI for the `pass-access`
+  # skill. Metadata only - it has no show/get/cat, so it cannot dump a secret.
+  # `inspect` and `otp` decrypt through the sanctioned path (the ~/.hermes/bin
+  # helpers + the pass-otp extension), not a reimplementation. It reads the real
+  # store at ~/.password-store (override with PASSWORD_STORE_DIR).
+  #
+  # runtimeInputs pins the whole closure so the CLI works from a non-interactive
+  # `hermes` invocation, not just an interactive shell: pass (with pass-otp for
+  # `pass otp`), gnupg for the `doctor` gpg checks, python3 + bash so the
+  # ~/.hermes/bin/{pass-to,pass-inspect} helper shebangs resolve, and the
+  # coreutils/find/grep/sed userland the script uses.
+  passAxi = pkgs.writeShellApplication {
+    name = "pass-axi";
+    runtimeInputs = with pkgs; [
+      (pass.withExtensions (exts: [ exts.pass-otp ]))
+      gnupg
+      python3
+      bash
+      coreutils
+      findutils
+      gnugrep
+      gnused
+    ];
+    text = builtins.readFile ./hermes-skills/pass-access/scripts/pass-axi;
+  };
 in
 {
   # Skill discovery needs NO trust/enable step: Hermes scans
@@ -42,4 +68,10 @@ in
         $DRY_RUN_CMD ln -sfn "${skillsSrc}/$_s" "$_home/skills/$_s"
       done
     '';
+
+  # `pass-axi` on PATH for the `pass-access` skill. fish.nix already prepends
+  # ~/.local/bin; this puts the CLI in the nix profile so it resolves for the
+  # Hermes agent regardless of shell. The `pass-access` skill reads from the
+  # captain's real store at ~/.password-store.
+  home.packages = [ passAxi ];
 }
