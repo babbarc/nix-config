@@ -58,10 +58,11 @@ in
   '';
 
   # Install herdr's per-harness integration files (hook scripts/plugins and
-  # the small harness-config edits that wire them) for every harness the
-  # windows-mcp selector supports plus pi, so a fresh machine gets them
-  # without a manual `herdr integration install <target>` per harness. Same
-  # guard posture as herdrInstall above: skip cleanly (don't fail the switch)
+  # the small harness-config edits that wire them) for pi and the five extra
+  # agent harnesses (claude, codex, kimi, opencode, grok), so a fresh machine
+  # gets them without a manual `herdr integration install <target>` per
+  # harness. Same guard posture as herdrInstall above: skip cleanly (don't
+  # fail the switch)
   # if `herdr` isn't on PATH yet or if an individual install errors.
   #
   # Per-target notes (verified against herdr 0.8.2 and its integrations doc):

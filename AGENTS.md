@@ -203,26 +203,30 @@ a different version; re-verify against the actual pinned source before
 trusting any option name here:
 `grep -n pinentry $(nix eval --impure --raw --expr '(builtins.getFlake "path:'"$(pwd)"'").inputs.home-manager.outPath')/modules/services/gpg-agent.nix`
 
-## Windows-MCP GUI-control bridge
+## Hermes desktop control: Cua driver (wsl host)
 
-`modules/dev/windows-mcp.nix` makes the captain's Windows GUI-control bridge
-declarative on the `wsl` host: a single `windowsMcp.harness` enum option
-(none | claude | codex | opencode | grok | kimi) installs ONE extra harness
-alongside pi (always present via `modules/dev/pi.nix`; never installed or
-registered here) and writes that harness's windows-mcp MCP registration plus
-a `hermes` stdio entry (`hermes mcp serve`), so firstmate can delegate to
-Hermes over MCP from that harness.
-The harness is wired from `DOTFILES_WINDOWS_MCP_HARNESS` in
-`~/.config/dotfiles/env` (`hosts/wsl/configuration.nix`); the Windows side
-(uv + windows-mcp, not Nix-managed) is `windows-mcp-bootstrap.ps1`. Full
-usage + per-harness tradeoffs in README "Windows-MCP bridge" (cursor was
-evaluated and excluded - Windows GUI app, not a WSL-side CLI).
+The `wsl` host's Hermes agent drives the Windows desktop through
+[cua-driver](https://cua.ai/cua-driver), registered as a Hermes MCP server.
+`modules/dev/hermes-agent.nix` (option `hermesAgent.cuaDriver`, enabled in
+`hosts/wsl/configuration.nix`; off on the alps `hermes` host, which has no
+Windows side) runs at activation, after `joyBrainInstantiate` so it edits
+the seeded `~/.hermes/config.yaml`:
 
-Sharp edge: `pkgs.claude-code` is unfree in nixpkgs (the repo's
-allowUnfreePredicate only allows `unrar`), so claude is installed via npm
-(`@anthropic-ai/claude-code`, pinned) under `~/.local` - matching the
-captain's existing native install at `~/.local/bin/claude`. Don't switch it
-to the nixpkgs package without also widening the unfree predicate.
+    hermes mcp add cua-driver --command powershell.exe \
+      --args -NoProfile -Command "& 'C:\Users\palla\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe' mcp"
+
+idempotent (skipped when `~/.hermes/config.yaml` already lists `cua-driver`)
+and warn-not-die. The Windows-side install (per-user, no admin, autostart
+off) is `cua-driver-bootstrap.ps1` at the repo root, which invokes the
+official `https://cua.ai/driver/install.ps1` with `-NoAutoStart`. Hermes
+reaches the driver over WSL interop (`powershell.exe`), so the interop pins
+in `hosts/wsl/configuration.nix` are load-bearing. cua-driver is
+GUI/desktop-only (no shell/filesystem/registry) - a deliberate capability
+drop from the removed windows-mcp bridge; PowerShell and `/mnt/c` are
+reachable directly from WSL. Full usage in README "Hermes desktop control
+(Cua driver)".
+
+## Herdr runtime backend
 
 Herdr is the runtime backend (firstmate's `FM_BACKEND=herdr`) and is now
 pinned, not curl-installed: `modules/dev/herdr.nix` fetches the exact
@@ -230,7 +234,7 @@ v0.8.2 release binary (protocol 20, `github.com/herdrdev/herdr`) via
 `fetchurl` with per-arch sha256 from `herdr.dev/latest.json`, installs once
 under `~/.local/bin/herdr` when missing, and leaves `herdr update` to
 self-update. No nixpkgs package exists (no binary cache; single Go binary).
-That module also installs herdr integrations for pi + all five selector
+That module also installs herdr integrations for pi + the five extra agent
 harnesses (claude, codex, kimi, opencode, grok) via `herdr integration
 install`, after `mkdir -p`ing each config dir herdr requires to pre-exist.
 firstmate's herdr backend floor is protocol 14 (needs `herdr` + `jq`;
@@ -323,12 +327,10 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   systemd user service (or firstmate dispatch) is deliberately out of scope for
   this phase - launch it by hand for now.
 - `hermes mcp serve` runs Hermes as a stdio MCP server (no transport flags)
-  that exposes its conversations to other agents; `modules/dev/windows-mcp.nix`
-  registers a `hermes` entry (command `hermes`, args `["mcp", "serve"]`) into
-  the chosen `windowsMcp.harness` alongside windows-mcp, in the same
-  per-harness format. That is how firstmate delegates to Hermes: spawn a
-  crewmate on the chosen harness and have it call the `hermes` MCP server -
-  not by teaching firstmate to spawn Hermes as a pane.
+  that exposes its conversations to other agents. Nothing in this repo
+  registers it now that the windows-mcp harness selector is gone; a caller
+  that wants to delegate to Hermes over MCP wires up that entry itself
+  (`<harness> mcp add hermes -- hermes mcp serve` or equivalent).
 
 ## Maintaining this file
 
