@@ -145,6 +145,25 @@ in
   # so these binaries execute unmodified.
   programs.nix-ld.enable = true;
 
+  # podman is declared here (system level), NOT as a home.packages entry in
+  # modules/dev/browser-proxy-windows.nix: podman's rootless quadlet generator
+  # (lib/systemd/user-generators/) only gets wired into systemd's --user
+  # generator search path when podman is installed system-wide. The module's
+  # vendored *.container drop in ~/.config/containers/systemd/ then actually
+  # generates browser-proxy-windows.service on `systemctl --user daemon-reload`
+  # (or session start).
+  #
+  # Two options are needed: environment.systemPackages puts the `podman` CLI on
+  # PATH; systemd.packages is what NixOS's systemd hook machinery scans for
+  # lib/systemd/{user,system}-generators and links into
+  # /etc/systemd/user-generators/ - environment.systemPackages alone leaves
+  # that directory empty (confirmed by inspecting the built toplevel), so the
+  # quadlet files would still never generate the unit. This mirrors what
+  # virtualisation.podman.enable does (systemPackages + systemd.packages)
+  # without pulling in its extra /etc/containers + network config.
+  environment.systemPackages = [ pkgs.podman ];
+  systemd.packages = [ pkgs.podman ];
+
   # Matches nix/flake.nix's allowUnfreePredicate for the Arch host's own pkgs
   # instance (unrar, pulled in by modules/dev/cli-tools.nix) - this host has
   # no custom `pkgs` passed to nixosSystem, so the same exception has to be
