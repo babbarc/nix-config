@@ -256,6 +256,37 @@ simulating a fresh PID+mount namespace with those mounts).
 the marker process, never the captain's Chrome), and `GET /status` reports
 `{chrome, visible}`. It does not start/stop Chrome, so single-instance +
 idle-stop invariants hold.
+## Hermes agent on wsl (install + joy-brain instantiation)
+
+`modules/dev/hermes-agent.nix` and `modules/dev/joy-brain.nix` (imported only
+by `hosts/wsl/configuration.nix`, never the shared `modules/dev` list) install
+the Hermes agent and instantiate the captain's private joy-brain as its home.
+Full rationale + the curated skill subset + the not-vendored list live in README
+"Hermes agent (wsl)"; the sharp edges worth knowing here:
+
+- Hermes is a pinned `uv sync --extra all --locked --python 3.11` of
+  `github:NousResearch/hermes-agent` at tag `v2026.8.31` (revision
+  `29112bef099274229cadff79cdff7bf7b99c4b77`), into the writable checkout
+  `~/.local/share/hermes-agent`. The checkout MUST be writable: uv's setuptools
+  editable build writes `hermes_agent.egg-info` into the project tree, so a
+  read-only nix-store source fails ("could not create 'hermes_agent.egg-info':
+  Permission denied" - verified). Upstream's flake packaging (uv2nix + npm
+  TUI/web) is deliberately not adopted (5 extra inputs, no binary cache,
+  multi-hour builds) - see the module header.
+- joy-brain clones at activation from `ssh://git@alps:2222/babbarc/joy-brain.git`
+  into `~/.local/share/joy-brain`; `~/.hermes` (HERMES_HOME) is materialized
+  from it - config.yaml is a writable copy with `browser.cdp_url =
+  http://localhost:3333` deep-merged on every activation (yq `*` operator, so
+  runtime edits survive), everything else is symlinked. The joy-brain rev is a
+  single `joyBrainRev` string in `modules/dev/joy-brain.nix` (empty = clone
+  HEAD + warn; set a 40-char SHA to pin).
+- Only `chrome-devtools-axi`, `web`, `mcp` are symlinked into
+  `~/.hermes/skills/` (single `includedSkills` list) - never all ~40 joy-brain
+  skills. Extend the list, don't copy skills into this repo.
+- `HERMES_HOME` is `home.sessionVariables`, so it reaches interactive shells
+  only (same gap firstmate.nix documents). Running `hermes gateway` as a
+  systemd user service (or firstmate dispatch) is deliberately out of scope for
+  this phase - launch it by hand for now.
 
 ## Maintaining this file
 

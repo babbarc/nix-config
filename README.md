@@ -303,6 +303,90 @@ Show/hide does not start or stop Chrome, so the single-instance and idle-stop
 invariants are unchanged. The window search targets only the Chrome browser
 process whose command line carries the `--user-data-dir` marker and no
 `--type=` child flag, so the captain's browsing Chrome is never affected.
+## Hermes agent (wsl)
+
+For the `wsl` host only: installs the Nous Research
+[Hermes Agent](https://hermes-agent.nousresearch.com) gateway and instantiates
+the captain's private "joy" assistant as its home, driving Windows Chrome
+through the CDP proxy on `http://localhost:3333` (see the PR that adds
+`modules/dev/browser-proxy-windows.nix`). Two modules, both imported only by
+`hosts/wsl/configuration.nix` - deliberately not the shared `modules/dev` list,
+because the laptop/server hosts run no Hermes agent and no WSL interop:
+
+- `modules/dev/hermes-agent.nix` - the engine. A pinned `uv sync` of
+  `github:NousResearch/hermes-agent` into `~/.local/share/hermes-agent`, with
+  the `hermes` CLI symlinked into `~/.local/bin`. Pin: tag `v2026.8.31`
+  (pyproject 0.21.0, revision `29112bef099274229cadff79cdff7bf7b99c4b77`) - the
+  same base the joy-stack container image builds from
+  (`containers/systemd/hermes/hermes.container`), so both instances run one
+  release. Upstream's own flake packaging (uv2nix + npm-built TUI/web) is not
+  adopted: it drags in five extra flake inputs and, with no public binary
+  cache, multi-hour from-source builds on a fresh host - this repo's
+  install-at-activation convention (see `firstmate.nix`, `herdr.nix`) is the
+  smaller, consistent fit.
+- `modules/dev/joy-brain.nix` - the assistant. Clones the PRIVATE
+  `ssh://git@alps:2222/babbarc/joy-brain.git` (the captain's full Hermes home)
+  at activation into `~/.local/share/joy-brain` and materializes `~/.hermes`
+  (the `HERMES_HOME`) from it. See the "private data" notes below.
+
+### Browser wiring
+
+`modules/dev/joy-brain.nix` deep-merges this override into
+`~/.hermes/config.yaml` on every activation:
+
+```yaml
+browser:
+  cdp_url: "http://localhost:3333"
+```
+
+That is the stable contract the Windows-Chrome CDP proxy exposes (see the
+proxy's own README section). The merge only forces `browser.cdp_url`; every
+other config key - joy-brain's own config plus Hermes's runtime edits via
+`hermes config set` / the TUI - is preserved.
+
+### Skills: a curated subset, not the whole joy-brain
+
+joy-brain carries ~40 skills under `skills/`; this repo deliberately does NOT
+instantiate all of them. Only the skills needed for effective internet browsing
+plus the MCP workflow skill are materialized into `~/.hermes/skills/` (as
+symlinks back into the clone):
+
+| Skill | Why it is included |
+| --- | --- |
+| `chrome-devtools-axi` | Drives a real Chrome session through the CDP proxy - the whole point of the wsl browser wiring. |
+| `web` | General web navigation/search/fetch workflow. |
+| `mcp` | Working with MCP servers (config, discovery, troubleshooting) - needed to keep the browser/MCP tooling usable. |
+
+Everything else in joy-brain's `skills/` is deliberately excluded (not copied,
+not symlinked) and stays private in the clone. The list lives in a single
+`includedSkills` list at the top of `modules/dev/joy-brain.nix`; extend it there
+if a future task needs another joy-brain skill, rather than copying the skill
+into this repo.
+
+### What is deliberately NOT vendored
+
+No joy-brain content is committed to this repo. The clone is fetched at
+activation from the private gitea SSH URL, exactly like `~/.firstmate` in
+`modules/dev/firstmate.nix`. This repo only carries the clone URL, the pin, the
+curated skill list and the `browser.cdp_url` wiring. In particular these stay
+out of this repo (they live in the clone and are never copied here):
+
+- `memory/` (contacts, personal memory) and `memories/`
+- `profiles/` (named profiles)
+- `plugins/` (e.g. the approval-gates plugin) - symlinked at activation, not vendored
+- `config.yaml` and `SOUL.md` - copied/symlinked from the clone at activation
+- all `skills/` except the curated subset above
+
+### MCP servers
+
+joy-brain's MCP servers are configured in its own `config.yaml` (the
+`mcp_servers` section), which the instantiation copies verbatim into
+`~/.hermes/config.yaml` - so whatever joy relies on comes along with its
+config. Declaring MCP servers in Nix (the upstream module's `mcpServers`
+option) is out of scope for this phase; the browser/`chrome-devtools-axi` path
+is the CDP proxy, not an MCP server. Any MCP server that turns out to be
+Windows-local or otherwise out of reach from the wsl host is a follow-up, not
+something this module silently half-wires.
 
 ## Validating changes
 
