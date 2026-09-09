@@ -284,9 +284,12 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   multi-hour builds) - see the module header.
 - joy-brain clones at activation from `ssh://git@alps:2222/babbarc/joy-brain.git`
   into `~/.local/share/joy-brain`; `~/.hermes` (HERMES_HOME) is materialized
-  from it - config.yaml is a writable copy with `browser.cdp_url =
-  http://localhost:3333` deep-merged on every activation (yq `*` operator, so
-  runtime edits survive), everything else is symlinked. The joy-brain rev is a
+  from it - config.yaml is seeded at first activation (from the clone's own
+  config.yaml when it carries one, else from the module's `browser.cdp_url`
+  base - Hermes treats the file as optional per-user state its runtime
+  creates) and that override is deep-merged on every activation (yq `*`
+  operator, so runtime edits survive), everything else is symlinked. The
+  joy-brain rev is a
   single `joyBrainRev` string in `modules/dev/joy-brain.nix` (currently pinned
   to `8c95745461bf7b01dbcc17659853bad62f35bd88`; empty degrades to clone HEAD +
   warn so a missing pin never hard-fails activation).
@@ -298,8 +301,9 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   holding several skills (`software/*`, `research/*`, `system/*`...). Extend the
   list, don't copy skills into this repo.
 - joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
-  `http://localhost:8181/mcp` (the QMD sidecar on alps). It rides along in the
-  copied config but is OUT OF SCOPE on wsl - no qmd backend there. See README.
+  `http://localhost:8181/mcp` (the QMD sidecar on alps). When the clone
+  carries one, it rides along in the seeded config but is OUT OF SCOPE on wsl
+  - no qmd backend there. See README.
 - `HERMES_HOME` is `home.sessionVariables`, so it reaches interactive shells
   only (same gap firstmate.nix documents). Running `hermes gateway` as a
   systemd user service (or firstmate dispatch) is deliberately out of scope for
