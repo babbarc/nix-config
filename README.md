@@ -227,6 +227,60 @@ Changing the harness later is just editing `DOTFILES_WINDOWS_MCP_HARNESS` and
 rebuilding; the old harness's registration is left in place (only the chosen
 one is written) so you can keep both around, or remove the other manually.
 
+## Windows Chrome CDP proxy
+
+For the `wsl` host only: a lazy CDP proxy that gives a Hermes agent running in
+NixOS-WSL a stable `http://localhost:3333` endpoint driving the captain's real
+Windows Chrome (installed on the Windows host, not a Linux Chromium container).
+
+Set the Hermes agent's browser endpoint to:
+
+```
+browser.cdp_url=http://localhost:3333
+```
+
+It runs as a rootless-podman quadlet (`browser-proxy-windows.container`, host
+networking) that drops the proxy script
+(`containers/systemd/browser-proxy-windows.py`) and unit file into
+`~/.config/containers/systemd/` via `modules/dev/browser-proxy-windows.nix`,
+imported only by `hosts/wsl/configuration.nix` (it needs WSL interop, so it is
+deliberately not in the shared `modules/dev` list used by the Arch hosts).
+
+Lifecycle: the proxy listens on `3333`, lazily launches Windows Chrome with
+`--remote-debugging-port=9222` on the first CDP request, tracks active
+connections, and stops that Chrome after `IDLE_TIMEOUT` seconds of inactivity.
+It owns exactly one Chrome, identified by a dedicated
+`--user-data-dir=C:\Users\Public\Hermes\ChromeProfile` marker, and never touches
+the captain's browsing Chrome. Before launching it checks - under a lock - for an
+existing Chrome with that marker or already on port 9222 and reuses it, so there
+is never more than one remote-debugging Chrome.
+
+Two Chrome/Windows facts matter here and shape the design:
+
+- **Chrome 152 removed `--remote-debugging-address`.** The flag is gone from
+  `chrome.dll` (only `remote-debugging-port`/`remote-debugging-pipe`/
+  `remote-debugging-targets` remain), so Chrome always binds its DevTools HTTP
+  server to `127.0.0.1` and ignores `0.0.0.0`. WSL2 cannot reach Windows's
+  loopback. The `--remote-debugging-address=0.0.0.0` flag is still passed (a
+  harmless no-op here, useful on older Chrome), but it is not what makes the
+  connection work.
+- **WSL2 NAT inbound is firewalled.** Windows Firewall (Public profile) drops
+  WSL->Windows inbound connections, and `netsh portproxy` needs elevation the
+  interop user does not have. So the proxy never dials the WSL gateway.
+
+Instead the proxy drives a small Windows-side helper (launched via
+`powershell.exe`) that makes an *outbound* connection back into WSL over WSL2's
+localhost forwarding and bridges it to Chrome's `127.0.0.1:9222`. The helper is
+embedded in the proxy script (an `Add-Type` C# socket bridge) and is spawned
+detached per CDP connection. The WSL gateway IP is still resolved at runtime,
+but for diagnostics only; nothing in the data path hardcodes it.
+
+Because the proxy must exec `powershell.exe` from inside its container, the
+quadlet bind-mounts the WSL interop surface: `/mnt/c` (the Windows drive),
+`/init` (the binfmt interpreter), and `/run/WSL` (the interop sockets). These
+mounts are required - without them `powershell.exe` cannot run from inside the
+container.
+
 ## Validating changes
 
 Pure evaluation only - this is the extent of what's been proven so far,
