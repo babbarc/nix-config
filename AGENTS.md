@@ -324,9 +324,14 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   joyBrainInstantiate`). `joyBrain.nix`'s `includedSkills` is now `[ ]` and its
   curated branch prunes any stale clone-targeted skill symlink on activation;
   the list stays as the one place to re-add a joy-brain skill if ever needed.
-  Wrapper binaries (`hermes-web-login`, `pass-axi`, `recover-page`) and the
-  proxy-wired `chrome-devtools-axi` are follow-up PRs - each SKILL.md carries
-  the interim path. Skill discovery needs NO trust step: Hermes scans
+  `pass-axi` (the `pass-access` CLI) is packaged by `hermes-skills.nix`
+  (`pkgs.writeShellApplication`, on PATH): metadata-only by construction (no
+  show/get/cat), `inspect`/`otp` decrypt only via the `~/.hermes/bin` helpers +
+  the `pass-otp` extension, `doctor` is the GPG/env pass-fail matrix. It reads
+  the captain's real store at `~/.password-store`. The remaining wrapper
+  binaries (`hermes-web-login`, `recover-page`) and the proxy-wired
+  `chrome-devtools-axi` are follow-up PRs - those SKILL.md files carry the
+  interim path. Skill discovery needs NO trust step: Hermes scans
   `~/.hermes/skills/` recursively (`os.walk` follows symlinks) and any
   `SKILL.md` dir registers as a `local` skill; `hermes skills trust` is only
   for repo-local `./.hermes/skills`. Verify after activation with `hermes

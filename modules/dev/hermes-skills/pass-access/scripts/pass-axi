@@ -1,0 +1,332 @@
+#!/usr/bin/env bash
+#
+# pass-axi - AXI-shaped, safe-by-construction access to the `pass` store.
+#
+# Every subcommand is metadata-only or a generated code. The first line of a
+# pass entry - the secret - never reaches stdout, a log, or model context.
+# There is deliberately no show / get / cat / edit: this tool cannot dump or
+# mutate a secret.
+#
+# `inspect` and `otp` are the only subcommands that decrypt, and both route
+# through the sanctioned helpers rather than reimplementing the filtering:
+#   - inspect: ~/.hermes/bin/pass-to <path> -- ~/.hermes/bin/pass-inspect
+#              (pass-inspect drops line 1 and masks otpauth `secret=`; pass-axi
+#              re-masks as defence in depth)
+#   - otp:     `pass otp <path>` (the pass-otp extension prints only the code)
+#
+# Vendored in nix-config at
+# modules/dev/hermes-skills/pass-access/scripts/pass-axi and packaged onto PATH
+# by modules/dev/hermes-skills.nix (pkgs.writeShellApplication). Reads the real
+# store at ~/.password-store (override with PASSWORD_STORE_DIR).
+#
+# Exit codes: 0 ok (incl. definitive empty states) · 2 usage · 3 store not
+# initialised · 4 entry/subdir not found · 5 decrypt/gpg failure · 6 helper
+# missing · doctor: 1 when any check fails.
+set -euo pipefail
+
+self="pass-axi"
+store="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+hermes_home="${HERMES_HOME:-$HOME/.hermes}"
+hermes_bin="$hermes_home/bin"
+
+# die CODE MESSAGE [help-line ...]
+die() {
+  local code="$1"; shift
+  printf 'error: %s\n' "$1" >&2; shift
+  if [ "$#" -gt 0 ]; then
+    printf 'help[]:\n' >&2
+    local h
+    for h in "$@"; do printf '  %s\n' "$h" >&2; done
+  fi
+  exit "$code"
+}
+
+require_store() {
+  [ -d "$store" ] || die 3 "STORE_NOT_FOUND: no directory at $store" \
+    "Run \`$self doctor\` to diagnose GPG / env / store state" \
+    "Set PASSWORD_STORE_DIR if the store lives elsewhere"
+  [ -f "$store/.gpg-id" ] || die 3 "STORE_NOT_INITIALIZED: $store has no .gpg-id" \
+    "Run \`$self doctor\`"
+}
+
+# Print store-relative entry paths (name only, no decryption), optional subdir.
+list_entries() {
+  local sub="${1:-}"
+  sub="${sub#/}"; sub="${sub%/}"
+  local root="."
+  [ -n "$sub" ] && root="$sub"
+  ( cd "$store" 2>/dev/null \
+      && find "$root" -name .git -prune -o -type f -name '*.gpg' -print 2>/dev/null ) \
+    | sed -e 's#^\./##' -e 's#\.gpg$##' \
+    | LC_ALL=C sort
+}
+
+count_lines() {
+  local n
+  n="$(printf '%s\n' "$1" | grep -c . || true)"
+  printf '%s' "${n:-0}"
+}
+
+# Resolve an entry argument to a store-relative name, or die 4.
+resolve_entry() {
+  local name="${1#/}"
+  name="${name%.gpg}"
+  [ -f "$store/$name.gpg" ] || die 4 "ENTRY_NOT_FOUND: no pass entry \"$name\"" \
+    "Run \`$self find $name\` to search entry names"
+  printf '%s' "$name"
+}
+
+# Re-mask anything secret-shaped that a metadata line might carry.
+mask_meta() {
+  sed -E \
+    -e 's/(secret=)[^&[:space:]]+/\1HIDDEN/gI' \
+    -e 's/^([[:space:]]*(password|passwd|pass|pw|pin|secret|token|api[_-]?key|apikey|auth[_-]?token)[[:space:]]*[:=]).*/\1 HIDDEN/I'
+}
+
+cmd_default() {
+  require_store
+  local all count
+  all="$(list_entries || true)"
+  count="$(count_lines "$all")"
+
+  printf 'bin: %s\n' "$(command -v "$self" 2>/dev/null || printf '%s' "$self")"
+  printf 'store: %s\n' "$store"
+  printf 'entries: %s\n' "$count"
+
+  printf 'recent[3]:\n'
+  local recent
+  recent="$(find "$store" -name .git -prune -o -type f -name '*.gpg' -printf '%T@ %P\n' 2>/dev/null \
+    | LC_ALL=C sort -rn | head -3 | sed -e 's/^[0-9][0-9.]* //' -e 's#\.gpg$##' || true)"
+  if [ -n "$recent" ]; then
+    printf '%s\n' "$recent" | sed 's/^/  /'
+  else
+    printf '  (none)\n'
+  fi
+
+  printf 'help[]:\n'
+  printf '  %s find <term>      - search entry names (prints "matches: N" then the paths)\n' "$self"
+  printf '  %s ls [subdir]      - list the store tree\n' "$self"
+  printf '  %s inspect <path>   - entry metadata only (login/url/otpauth) - never the secret\n' "$self"
+  printf '  %s otp <path>       - current TOTP code (digits only)\n' "$self"
+  printf '  %s doctor           - GPG / env / .gpg-id / secret-key pass-fail matrix\n' "$self"
+}
+
+cmd_find() {
+  [ "$#" -ge 1 ] || die 2 "USAGE: $self find <term>" "<term> is matched case-insensitively against entry names"
+  require_store
+  local term="$1" matches n
+  matches="$(list_entries | grep -iF -- "$term" || true)"
+  n="$(count_lines "$matches")"
+
+  if [ "$n" -eq 0 ]; then
+    printf 'matches: 0 - no pass entry name contains "%s"\n' "$term"
+    printf 'help[]:\n'
+    printf '  %s ls               - list the whole tree\n' "$self"
+    return 0
+  fi
+
+  printf 'matches: %s\n' "$n"
+  printf '%s\n' "$matches" | sed 's/^/  /'
+  printf 'help[]:\n'
+  printf '  %s inspect <path>   - its login / url / otpauth fields\n' "$self"
+  printf '  web-login <path>       - fill it into a browser login form\n'
+}
+
+cmd_ls() {
+  require_store
+  local sub="${1:-}"
+  if [ -n "$sub" ] && [ ! -d "$store/${sub#/}" ]; then
+    die 4 "SUBDIR_NOT_FOUND: no subdir \"$sub\" in the store" \
+      "Run \`$self ls\` for the top level, or \`$self find $sub\`"
+  fi
+  local entries n
+  entries="$(list_entries "$sub" || true)"
+  n="$(count_lines "$entries")"
+
+  printf 'store: %s\n' "$store${sub:+/${sub#/}}"
+  printf 'entries: %s\n' "$n"
+  if [ "$n" -gt 0 ]; then
+    printf '%s\n' "$entries" | sed 's/^/  /'
+  fi
+}
+
+cmd_inspect() {
+  [ "$#" -ge 1 ] || die 2 "USAGE: $self inspect <path>"
+  require_store
+  local name
+  name="$(resolve_entry "$1")" || exit $?
+
+  [ -x "$hermes_bin/pass-to" ] || die 6 "HELPER_MISSING: $hermes_bin/pass-to" \
+    "The ~/.hermes helpers are materialized by home-manager activation (modules/dev/joy-brain.nix)"
+  [ -e "$hermes_bin/pass-inspect" ] || die 6 "HELPER_MISSING: $hermes_bin/pass-inspect" \
+    "The ~/.hermes helpers are materialized by home-manager activation (modules/dev/joy-brain.nix)"
+
+  local meta
+  if ! meta="$("$hermes_bin/pass-to" "$name" -- "$hermes_bin/pass-inspect" 2>/dev/null)"; then
+    die 5 "DECRYPT_FAILED: could not read \"$name\"" \
+      "Run \`$self doctor\` to check GPG / gpg-agent / secret key"
+  fi
+  meta="$(printf '%s\n' "$meta" | mask_meta | sed -e 's/[[:space:]]*$//' | grep . || true)"
+
+  printf 'entry: %s\n' "$name"
+  if [ -z "$meta" ]; then
+    printf 'fields: 0 - entry has no metadata lines (secret only)\n'
+    return 0
+  fi
+  printf 'fields:\n'
+  printf '%s\n' "$meta" | sed 's/^/  /'
+  printf 'help[]:\n'
+  if printf '%s\n' "$meta" | grep -qi 'otpauth'; then
+    printf '  %s otp %s   - generate its current TOTP code\n' "$self" "$name"
+  fi
+  printf '  web-login %s   - fill it into a browser login form\n' "$name"
+}
+
+cmd_otp() {
+  [ "$#" -ge 1 ] || die 2 "USAGE: $self otp <path>"
+  require_store
+  local name code
+  name="$(resolve_entry "$1")" || exit $?
+
+  if ! code="$(pass otp "$name" 2>/dev/null)"; then
+    die 5 "OTP_UNAVAILABLE: \"$name\" has no otpauth line, or GPG failed" \
+      "Run \`$self inspect $name\` to check for an otpauth:// field" \
+      "Run \`$self doctor\` if other entries also fail"
+  fi
+  code="$(printf '%s' "$code" | tr -cd '0-9')"
+  [ -n "$code" ] || die 5 "OTP_EMPTY: no code produced for \"$name\""
+  printf 'otp: %s\n' "$code"
+}
+
+cmd_doctor() {
+  local pass_n=0 fail_n=0 line
+  local id_list=()
+  # row PASS|FAIL LABEL DETAIL
+  row() {
+    printf '  [%-4s] %-20s %s\n' "$1" "$2" "$3"
+    if [ "$1" = "PASS" ]; then pass_n=$((pass_n + 1)); else fail_n=$((fail_n + 1)); fi
+    return 0
+  }
+
+  printf 'doctor: pass-axi environment\n'
+
+  # store dir
+  if [ -d "$store" ]; then row PASS "store dir" "$store"
+  else row FAIL "store dir" "missing: $store"; fi
+
+  # PASSWORD_STORE_DIR
+  if [ -z "${PASSWORD_STORE_DIR:-}" ]; then
+    row PASS "PASSWORD_STORE_DIR" "unset (default $HOME/.password-store)"
+  elif [ -d "$PASSWORD_STORE_DIR" ]; then
+    row PASS "PASSWORD_STORE_DIR" "$PASSWORD_STORE_DIR"
+  else
+    row FAIL "PASSWORD_STORE_DIR" "set but not a directory: $PASSWORD_STORE_DIR"
+  fi
+
+  # GNUPGHOME
+  if [ -z "${GNUPGHOME:-}" ]; then
+    row PASS "GNUPGHOME" "unset (default $HOME/.gnupg)"
+  elif [ -d "$GNUPGHOME" ]; then
+    row PASS "GNUPGHOME" "$GNUPGHOME"
+  else
+    row FAIL "GNUPGHOME" "set but not readable: $GNUPGHOME"
+  fi
+
+  # binaries
+  if command -v gpg >/dev/null 2>&1; then row PASS "gpg binary" "$(command -v gpg)"
+  else row FAIL "gpg binary" "not on PATH"; fi
+  if command -v pass >/dev/null 2>&1; then row PASS "pass binary" "$(command -v pass)"
+  else row FAIL "pass binary" "not on PATH"; fi
+
+  # .gpg-id
+  local gpg_ids=""
+  if [ -f "$store/.gpg-id" ]; then
+    while IFS= read -r line; do
+      id_list+=("$line")
+    done < <(grep -vE '^[[:space:]]*$' "$store/.gpg-id" || true)
+    gpg_ids="${id_list[*]:-}"
+    if [ -n "$gpg_ids" ]; then row PASS ".gpg-id" "$gpg_ids"
+    else row FAIL ".gpg-id" "present but empty: $store/.gpg-id"; fi
+  else
+    row FAIL ".gpg-id" "missing: $store/.gpg-id"
+  fi
+
+  # secret-key intersection
+  if [ -n "$gpg_ids" ] && command -v gpg >/dev/null 2>&1; then
+    local have="" miss="" id
+    for id in "${id_list[@]}"; do
+      if gpg --list-secret-keys "$id" >/dev/null 2>&1; then have="$have $id"
+      else miss="$miss $id"; fi
+    done
+    if [ -n "$have" ]; then row PASS "secret key" "can decrypt as:$have"
+    else row FAIL "secret key" "no secret key for any .gpg-id recipient ($gpg_ids)"; fi
+    if [ -n "$miss" ]; then
+      printf '         note: no secret key for:%s (fine if another recipient covers you)\n' "$miss"
+    fi
+  fi
+
+  # encrypted entries
+  local n
+  n="$(find "$store" -name .git -prune -o -type f -name '*.gpg' -print 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${n:-0}" -gt 0 ]; then row PASS "encrypted entries" "$n .gpg files"
+  else row FAIL "encrypted entries" "no .gpg files under $store"; fi
+
+  # non-interactive decrypt probe (headless gpg-agent / pinentry / cache TTL)
+  local probe
+  probe="$(find "$store" -name .git -prune -o -type f -name '*.gpg' -print 2>/dev/null || true)"
+  probe="${probe%%$'\n'*}"
+  if [ -n "$probe" ] && command -v gpg >/dev/null 2>&1; then
+    if gpg --batch --quiet --decrypt "$probe" >/dev/null 2>&1; then
+      row PASS "decrypt probe" "decrypted non-interactively"
+    else
+      row FAIL "decrypt probe" "gpg --batch failed: passphrase not cached / no pinentry / no key"
+      printf '         fix: prime the agent once interactively, or raise gpg-agent default-cache-ttl / max-cache-ttl\n'
+    fi
+  fi
+
+  printf 'summary: %s pass, %s fail\n' "$pass_n" "$fail_n"
+  [ "$fail_n" -eq 0 ] || exit 1
+}
+
+cmd_help() {
+  cat <<EOF
+$self - safe, AXI-shaped access to the \`pass\` store. Metadata only; the
+secret (line 1 of an entry) never reaches stdout.
+
+usage:
+  $self                     content-first store state (path, count, recent, help[])
+  $self find <term>         search entry names -> \`matches: N\` then the paths
+  $self ls [subdir]         list the store tree
+  $self inspect <path>      entry metadata only - login: / url: / otpauth: (masked)
+  $self otp <path>          current TOTP code, digits only
+  $self doctor              GPG / env / .gpg-id / secret-key / decrypt-probe matrix
+  $self --help              this text
+
+There is deliberately no show / get / cat / edit / insert / rm / mv. This tool
+cannot expose or mutate a secret. Password and OTP entry into a page goes
+through the \`web-login\` skill.
+
+store: ${PASSWORD_STORE_DIR:-$HOME/.password-store}
+EOF
+}
+
+main() {
+  local sub="${1:-}"
+  case "$sub" in
+    "")            cmd_default ;;
+    -h|--help|help) cmd_help ;;
+    find)          shift; cmd_find "$@" ;;
+    ls)            shift; cmd_ls "${1:-}" ;;
+    inspect)       shift; cmd_inspect "$@" ;;
+    otp)           shift; cmd_otp "$@" ;;
+    doctor)        cmd_doctor ;;
+    show|get|cat|edit|insert|generate|rm|remove|mv|cp)
+      die 2 "REFUSED: \`$self $sub\` does not exist - this tool never exposes or mutates a secret" \
+        "$self inspect <path>   - safe metadata (login / url / otpauth)" \
+        "$self otp <path>       - TOTP code only" ;;
+    *)
+      die 2 "UNKNOWN_SUBCOMMAND: \"$sub\"" "Run \`$self --help\` for the command list" ;;
+  esac
+}
+
+main "$@"
