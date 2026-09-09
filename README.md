@@ -176,8 +176,9 @@ Two halves, one of which is Nix-managed:
 
   `pi` is always present on every host (`modules/dev/pi.nix`) and is the
   default runtime; the selector adds ONE additional GUI-control harness
-  alongside it and writes that harness's windows-mcp MCP registration. It
-  never installs or registers `pi`.
+  alongside it and registers two stdio MCP servers in it - the windows-mcp
+  bridge and `hermes` (the Hermes agent gateway, entrypoint
+  `hermes mcp serve`). It never installs or registers `pi`.
 
   `herdr` is the runtime backend that spawns and manages each harness pane.
   It is installed declaratively too (`modules/dev/herdr.nix`, pinned to
@@ -218,6 +219,17 @@ that harness's real config format):
 | `opencode` | nixpkgs `opencode`                          | `mcp.windows` in `~/.config/opencode/opencode.json`          | Open source, multi-provider. Config is merged with jq so other keys survive. |
 | `grok`   | official npm `@xai-official/grok` (pinned)    | `[mcp_servers.windows]` in `~/.grok/config.toml`             | xAI's agent; not in nixpkgs, so installed once under `~/.local` via npm. Needs an xAI account. |
 | `kimi`   | official single-binary installer (pinned)     | `mcpServers.windows` in `~/.kimi-code/mcp.json`              | Moonshot's agent; not in nixpkgs, installed once under `~/.local` via the official installer. `mcp.json` is dedicated to MCP, so it is managed as a whole file. |
+
+### Delegating to Hermes over MCP
+
+The same selector also registers a `hermes` stdio MCP server (command
+`hermes`, args `["mcp", "serve"]`) in the chosen harness, using the same
+per-harness format as the windows-mcp entry in the table above. That is how
+firstmate delegates a task to the Hermes agent: spawn a crewmate on the
+chosen harness and have it call the `hermes` MCP server. `hermes mcp serve`
+runs Hermes as a stdio MCP server that exposes its conversations (list/read
+messages, send messages, poll events, manage approvals) to the calling
+agent - no transport flags, no ports.
 
 `cursor` was evaluated and deliberately excluded: it supports MCP clients
 (`~/.cursor/mcp.json`) but is a Windows GUI IDE, not a WSL-side CLI harness,
@@ -340,7 +352,10 @@ because the laptop/server hosts run no Hermes agent and no WSL interop:
   adopted: it drags in five extra flake inputs and, with no public binary
   cache, multi-hour from-source builds on a fresh host - this repo's
   install-at-activation convention (see `firstmate.nix`, `herdr.nix`) is the
-  smaller, consistent fit.
+  smaller, consistent fit. `hermes mcp serve` is the server entrypoint: it
+  runs Hermes as a stdio MCP server (no transport flags), which
+  `modules/dev/windows-mcp.nix` registers into the chosen
+  `windowsMcp.harness` - see "Delegating to Hermes over MCP".
 - `modules/dev/joy-brain.nix` - the assistant. Clones the PRIVATE
   `ssh://git@alps:2222/babbarc/joy-brain.git` (the captain's full Hermes home)
   at activation into `~/.local/share/joy-brain` and materializes `~/.hermes`
