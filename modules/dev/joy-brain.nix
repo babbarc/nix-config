@@ -7,17 +7,29 @@ let
   # Pinned commit of the private joy-brain repo. Set this to a 40-char SHA to
   # pin (the activation enforces it on every run). Empty = clone HEAD and warn,
   # which keeps a fresh host working but is NOT the intended steady state.
-  # SHA captured from the captain's ls-remote (2026-09-09).
-  joyBrainRev = "75afc0727f6b4615b3e96087587a04d3834af965";
+  joyBrainRev = "8c95745461bf7b01dbcc17659853bad62f35bd88";
 
   # Curated skill subset (captain scope decision, see README "Hermes agent").
-  # Only browser-relevant skills plus the MCP workflow skill are instantiated;
-  # every other joy-brain skill stays private in the clone and is deliberately
-  # NOT materialized into ~/.hermes. This list is the single place to extend.
+  # Only browser skills (drive the Windows Chrome via the CDP proxy) plus the
+  # MCP workflow skill are instantiated; every other joy-brain skill stays
+  # private in the clone and is deliberately NOT materialized into ~/.hermes.
+  # This list is the single place to extend. Paths are relative to
+  # <clone>/skills/; a bare name is a flat skill dir, a/b is a skill inside a
+  # category dir (both resolve to the same shape under ~/.hermes/skills/).
   includedSkills = [
-    "chrome-devtools-axi"
-    "web"
-    "mcp"
+    # browser skills
+    "chrome-devtools-axi"              # primary browser CLI driver
+    "web"                              # blocked-page-recovery (fetch failure recovery)
+    "software/choose-web-tool"         # load first for web: curl/browser/scrapling
+    "software/operate-browser"         # built-in browser_navigate/click/type/scroll
+    "software/preserve-browser-session" # CDP session preservation pattern
+    "software/use-cdp-protocol"        # raw CDP via the browser_cdp tool
+    "software/run-cdp-scripts"         # cdp-*.py CLI scripts (target localhost:3333)
+    "software/recaptcha-solver"        # reCAPTCHA v2 challenges
+    "research/scrapling"               # stealth browser scraping / Cloudflare bypass
+    "research/duckduckgo-search"       # free web search (no API key)
+    # workflow
+    "mcp"                              # native-mcp (MCP client: stdio/HTTP servers)
   ];
 
   # Deep-merged into ~/.hermes/config.yaml at activation. `*` is yq's merge
@@ -99,7 +111,10 @@ ${
 
     # Private state dirs: symlink whichever of these joy-brain actually has
     # (guarded, so a missing dir is skipped rather than failing activation).
-    for _d in memory memories profiles plugins; do
+    # scripts/ + bin/ are included because the browser skills above reference
+    # the cdp-*.py helpers that live there (and those helpers already target
+    # the proxy contract at localhost:3333).
+    for _d in bin contacts memory memories plugins profiles scripts; do
       if [ -d "$_src/$_d" ] && [ ! -e "$_home/$_d" ]; then
         $DRY_RUN_CMD ln -sfn "$_src/$_d" "$_home/$_d"
       fi
@@ -114,6 +129,7 @@ ${
     $DRY_RUN_CMD mkdir -p "$_home/skills"
     for _s in ${lib.escapeShellArgs includedSkills}; do
       if [ -d "$_src/skills/$_s" ]; then
+        $DRY_RUN_CMD mkdir -p "$(dirname "$_home/skills/$_s")"
         $DRY_RUN_CMD ln -sfn "$_src/skills/$_s" "$_home/skills/$_s"
       else
         echo "warning: joy-brain skill '$_s' not found under $_src/skills - not instantiated" >&2

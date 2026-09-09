@@ -279,11 +279,18 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   http://localhost:3333` deep-merged on every activation (yq `*` operator, so
   runtime edits survive), everything else is symlinked. The joy-brain rev is a
   single `joyBrainRev` string in `modules/dev/joy-brain.nix` (currently pinned
-  to `75afc0727f6b4615b3e96087587a04d3834af965`; empty degrades to clone HEAD +
+  to `8c95745461bf7b01dbcc17659853bad62f35bd88`; empty degrades to clone HEAD +
   warn so a missing pin never hard-fails activation).
-- Only `chrome-devtools-axi`, `web`, `mcp` are symlinked into
-  `~/.hermes/skills/` (single `includedSkills` list) - never all ~40 joy-brain
-  skills. Extend the list, don't copy skills into this repo.
+- Only the browser skills + `mcp` are symlinked into `~/.hermes/skills/` (single
+  `includedSkills` list of ~11 entries, paths relative to `<clone>/skills/` and
+  able to name nested `category/skill` dirs) - never all ~110 joy-brain skills.
+  joy-brain has a MIXED layout: some top-level dirs are flat skills
+  (`chrome-devtools-axi`, `debugging-tools`, `lavish`...), others are categories
+  holding several skills (`software/*`, `research/*`, `system/*`...). Extend the
+  list, don't copy skills into this repo.
+- joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
+  `http://localhost:8181/mcp` (the QMD sidecar on alps). It rides along in the
+  copied config but is OUT OF SCOPE on wsl - no qmd backend there. See README.
 - `HERMES_HOME` is `home.sessionVariables`, so it reaches interactive shells
   only (same gap firstmate.nix documents). Running `hermes gateway` as a
   systemd user service (or firstmate dispatch) is deliberately out of scope for
