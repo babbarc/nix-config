@@ -315,18 +315,24 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   single `joyBrainRev` string in `modules/dev/joy-brain.nix` (currently pinned
   to `8c95745461bf7b01dbcc17659853bad62f35bd88`; empty degrades to clone HEAD +
   warn so a missing pin never hard-fails activation).
-- Only the browser skills, `mcp`, and the whole `security` category are
-  symlinked into `~/.hermes/skills/` (single `includedSkills` list in
-  `modules/dev/joy-brain.nix`, paths relative to `<clone>/skills/`, a bare name
-  being either a flat skill dir or a whole category dir, `a/b` a skill inside a
-  category) - never all ~110 joy-brain skills. `security` is listed as the bare
-  category on purpose: `credential-pre-flight` + `configure-pass-env` and their
-  headless-GPG helper scripts must travel together for non-interactive `pass`
-  access. joy-brain has a MIXED layout: some top-level dirs are flat skills
-  (`chrome-devtools-axi`, `debugging-tools`, `lavish`...), others are categories
-  holding several skills (`software/*`, `research/*`, `system/*`...). Extend the
-  list, don't copy skills into this repo. Verify after activation with
-  `hermes skills list` (must be non-zero; discovery follows symlinks).
+- The curated instance no longer borrows joy-brain skills. It runs a
+  purpose-built, AXI-shaped set vendored in this repo at
+  `modules/dev/hermes-skills/<skill>/SKILL.md` (`browse`, `web-login`,
+  `pass-access`, `operate-desktop`, `recover-blocked-page`, `delegated-task`),
+  symlinked into `~/.hermes/skills/` by `modules/dev/hermes-skills.nix`
+  (imported only by `hosts/wsl/configuration.nix`, `entryAfter
+  joyBrainInstantiate`). `joyBrain.nix`'s `includedSkills` is now `[ ]` and its
+  curated branch prunes any stale clone-targeted skill symlink on activation;
+  the list stays as the one place to re-add a joy-brain skill if ever needed.
+  Wrapper binaries (`hermes-web-login`, `pass-axi`, `recover-page`) and the
+  proxy-wired `chrome-devtools-axi` are follow-up PRs - each SKILL.md carries
+  the interim path. Skill discovery needs NO trust step: Hermes scans
+  `~/.hermes/skills/` recursively (`os.walk` follows symlinks) and any
+  `SKILL.md` dir registers as a `local` skill; `hermes skills trust` is only
+  for repo-local `./.hermes/skills`. Verify after activation with `hermes
+  skills list` (source `local`, must show the six). Design report:
+  `firstmate/data/hermes-axi-skills-design/report.md`. The alps full brain is
+  unaffected - `joyBrain.full = true` still symlinks joy-brain's whole tree.
 - joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
   `http://localhost:8181/mcp` (the QMD sidecar on alps). When the clone
   carries one, it rides along in the seeded config but is OUT OF SCOPE on wsl
