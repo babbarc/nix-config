@@ -187,6 +187,12 @@ in
     # and modules/dev/windows-mcp.nix.
     windowsMcp.harness = dotfilesEnv.DOTFILES_WINDOWS_MCP_HARNESS or "none";
 
-    imports = [ ../../modules/dev ];
+    imports = [
+      ../../modules/dev
+      # Windows-Chrome CDP proxy (WSL-only): vendored podman quadlet + proxy
+      # script that expose localhost:3333 for a Hermes agent. See
+      # modules/dev/browser-proxy-windows.nix.
+      ../../modules/dev/browser-proxy-windows.nix
+    ];
   };
 }

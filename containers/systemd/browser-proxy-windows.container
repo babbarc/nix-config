@@ -1,0 +1,70 @@
+# Podman quadlet - deploy to ~/.config/containers/systemd/browser-proxy-windows.container
+#
+# Windows-Chrome variant of the lazy browser proxy. Runs the same lazy
+# lifecycle as browser-proxy.container / browser-proxy-firstmate.container
+# (listener on PROXY_PORT, on-demand backend start, idle stop, active
+# connection tracking), but the backend is the captain's Windows Chrome via
+# WSL interop instead of a Linux Chromium container.
+#
+# Why this differs from the Linux variant: Chrome 152 removed
+# --remote-debugging-address, so Windows Chrome binds its DevTools port to
+# 127.0.0.1 only, and this WSL2 NAT host's firewall drops WSL->Windows
+# inbound. The proxy therefore drives a small Windows-side powershell.exe
+# helper that bridges Chrome 127.0.0.1:9222 back into WSL over WSL2
+# localhost forwarding (outbound). See browser-proxy-windows.py for the full
+# rationale.
+#
+# The interop mounts below (/mnt/c, /init, /run/WSL) are REQUIRED: without
+# them powershell.exe cannot be exec'd from inside the container. Verified
+# by simulating a fresh PID+mount namespace with only those bind mounts and
+# exec'ing powershell.exe successfully.
+
+[Unit]
+Description=Hermes Browser Proxy (Windows Chrome) - lazy CDP on port 3333
+After=network-online.target
+
+[Container]
+Image=localhost/browser-proxy:latest
+ContainerName=browser-proxy-windows
+Network=host
+
+# WSL interop: Windows drive (powershell.exe/chrome.exe live here) plus the
+# binfmt interpreter and interop sockets used to launch Windows processes
+# from inside the container.
+Volume=/mnt/c:/mnt/c:ro
+Volume=/init:/init:ro
+Volume=/run/WSL:/run/WSL:ro
+
+# Log timestamps in the host's zone, same as the other proxy quadlets.
+Volume=/etc/localtime:/etc/localtime:ro
+
+# The proxy script, vendored under this repo and materialized at
+# ~/.config/containers/systemd/browser-proxy-windows.py via
+# modules/dev/browser-proxy-windows.nix (raw xdg.configFile drop).
+Volume=%h/.config/containers/systemd/browser-proxy-windows.py:/proxy.py:ro,Z
+
+Environment=PYTHONUNBUFFERED=1
+
+# Stable external contract: Hermes points browser.cdp_url at localhost:3333.
+Environment=PROXY_PORT=3333
+# Loopback control API for show/hide: POST /show, POST /hide, GET /status.
+Environment=CONTROL_PORT=3335
+# Internal reverse-pipe ingress: the Windows helper connects here (WSL2
+# localhost forwarding) to hand Chrome traffic back into the proxy.
+Environment=PIPE_PORT=9223
+# Windows Chrome remote debugging port (bound to 127.0.0.1 on Windows).
+Environment=CHROME_PORT=9222
+# Isolated Chrome profile (see browser-proxy-windows.py). Must not contain
+# spaces; must be writable by the Windows user without elevation.
+Environment=CHROME_USER_DATA_DIR=C:\Users\Public\Hermes\ChromeProfile
+# Stop Windows Chrome after this many seconds with no active connections.
+Environment=IDLE_TIMEOUT=3600
+
+Exec=/usr/local/bin/python3 -u /proxy.py
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

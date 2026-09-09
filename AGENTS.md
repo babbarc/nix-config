@@ -225,6 +225,38 @@ at `/etc/profiles/per-user/<user>/bin/fish` (`programs.fish.enable` +
 `useUserPackages`), which herdr's chezmoi `default_shell` points at, and the
 integration hooks are POSIX `sh` + `python3` so they are shell-agnostic.
 
+## Windows Chrome CDP proxy (wsl host)
+
+`modules/dev/browser-proxy-windows.nix` (imported only by
+`hosts/wsl/configuration.nix`, NOT the shared `modules/dev` list - it needs WSL
+interop) vendors `containers/systemd/browser-proxy-windows.{container,py}` as a
+raw `xdg.configFile` drop, same convention as browser-proxy-firstmate. The
+quadlet runs the proxy under rootless podman (host networking) and exposes
+`http://localhost:3333` for a Hermes agent's `browser.cdp_url`; the proxy lazily
+launches the captain's Windows Chrome on `127.0.0.1:9222` and stops it after
+`IDLE_TIMEOUT`. It owns exactly one Chrome via a
+`--user-data-dir=C:\Users\Public\Hermes\ChromeProfile` marker and never touches
+the captain's browsing Chrome.
+
+Sharp edges that forced the reverse-tunnel design (all verified live):
+- Chrome 152 removed `--remote-debugging-address` (string absent from chrome.dll;
+only `remote-debugging-port`/`-pipe`/`-targets` remain), so Chrome binds DevTools
+to `127.0.0.1` and ignores `0.0.0.0`.
+- WSL2 NAT inbound to Windows is firewalled (Public profile), and `netsh
+portproxy` needs elevation the interop user lacks.
+- So the proxy never dials the WSL gateway. It spawns a detached Windows-side
+helper (`powershell.exe` + `Add-Type` C# socket bridge, embedded in the .py) that
+connects OUTBOUND back into WSL via WSL2 localhost forwarding and bridges to
+Chrome `127.0.0.1:9222`. Gateway IP is resolved at runtime for diagnostics only.
+- The quadlet must bind-mount `/mnt/c`, `/init`, and `/run/WSL` (WSL interop
+surface) or `powershell.exe` cannot exec from inside the container (verified by
+simulating a fresh PID+mount namespace with those mounts).
+- Control API on loopback `CONTROL_PORT` (default 3335): `POST /show` and
+`POST /hide` toggle the managed Chrome window via Win32 `ShowWindow` (scoped to
+the marker process, never the captain's Chrome), and `GET /status` reports
+`{chrome, visible}`. It does not start/stop Chrome, so single-instance +
+idle-stop invariants hold.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
