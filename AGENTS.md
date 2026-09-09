@@ -278,8 +278,9 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   from it - config.yaml is a writable copy with `browser.cdp_url =
   http://localhost:3333` deep-merged on every activation (yq `*` operator, so
   runtime edits survive), everything else is symlinked. The joy-brain rev is a
-  single `joyBrainRev` string in `modules/dev/joy-brain.nix` (empty = clone
-  HEAD + warn; set a 40-char SHA to pin).
+  single `joyBrainRev` string in `modules/dev/joy-brain.nix` (currently pinned
+  to `75afc0727f6b4615b3e96087587a04d3834af965`; empty degrades to clone HEAD +
+  warn so a missing pin never hard-fails activation).
 - Only `chrome-devtools-axi`, `web`, `mcp` are symlinked into
   `~/.hermes/skills/` (single `includedSkills` list) - never all ~40 joy-brain
   skills. Extend the list, don't copy skills into this repo.

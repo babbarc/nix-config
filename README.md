@@ -327,7 +327,10 @@ because the laptop/server hosts run no Hermes agent and no WSL interop:
 - `modules/dev/joy-brain.nix` - the assistant. Clones the PRIVATE
   `ssh://git@alps:2222/babbarc/joy-brain.git` (the captain's full Hermes home)
   at activation into `~/.local/share/joy-brain` and materializes `~/.hermes`
-  (the `HERMES_HOME`) from it. See the "private data" notes below.
+  (the `HERMES_HOME`) from it. Pin: commit
+  `75afc0727f6b4615b3e96087587a04d3834af965` (the `joyBrainRev` constant; an
+  empty value degrades to clone-HEAD-and-warn so a missing pin never
+  hard-fails activation). See the "private data" notes below.
 
 ### Browser wiring
 

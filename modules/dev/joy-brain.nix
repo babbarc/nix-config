@@ -7,7 +7,8 @@ let
   # Pinned commit of the private joy-brain repo. Set this to a 40-char SHA to
   # pin (the activation enforces it on every run). Empty = clone HEAD and warn,
   # which keeps a fresh host working but is NOT the intended steady state.
-  joyBrainRev = "";
+  # SHA captured from the captain's ls-remote (2026-09-09).
+  joyBrainRev = "75afc0727f6b4615b3e96087587a04d3834af965";
 
   # Curated skill subset (captain scope decision, see README "Hermes agent").
   # Only browser-relevant skills plus the MCP workflow skill are instantiated;
