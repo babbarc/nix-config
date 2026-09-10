@@ -17,9 +17,15 @@ let
   # This module materializes the skills and packages the CLIs they call
   # (`pass-axi` for pass-access, `hermes-web-login` for web-login, `hermes-browse`
   # for browse, `recover-page` for recover-blocked-page).
-  skillsSrc = ./hermes-skills;
+  # The shared base skill set, rendered through the hermesGuardrails tunables by
+  # modules/dev/hermes-guardrails.nix (so the live-app / budget / heartbeat /
+  # loop-bound numbers in the SKILL.md prose come from one place). `skillNames`
+  # is read from the ORIGINAL tree because `builtins.readDir` cannot read a
+  # derivation output at eval time.
+  skillsSrcOriginal = ./hermes-skills;
+  skillsSrc = config.hermesGuardrails.skillsDir;
   skillNames = builtins.attrNames
-    (lib.filterAttrs (_: t: t == "directory") (builtins.readDir skillsSrc));
+    (lib.filterAttrs (_: t: t == "directory") (builtins.readDir skillsSrcOriginal));
 
   # pass-axi: the safe-by-construction `pass` access CLI for the `pass-access`
   # skill. Metadata only - it has no show/get/cat, so it cannot dump a secret.

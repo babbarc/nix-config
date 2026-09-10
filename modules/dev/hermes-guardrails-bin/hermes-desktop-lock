@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# hermes-desktop-lock - fleet-wide mutual exclusion for the captain's live desktop.
+#
+# A visible / focused desktop is ONE shared resource: only one expert anywhere in
+# the fleet may drive the captain's live applications at a time. This CLI is the
+# lock they cooperate through. It is deliberately a plain advisory file lock (a
+# lock directory + an owner file), not a Hermes primitive - Hermes has no
+# fleet-wide resource lock, only per-profile / global worker-count caps, and
+# those do not model "the desktop is busy".
+#
+# The lock is FLEET-WIDE because every expert profile runs as the same unix user
+# and resolves the same path ($HERMES_HOME/run/desktop.lock by default, from
+# $HERMES_HOME/guardrails.yaml). It is TTL-based so a worker that dies without
+# releasing it cannot wedge the fleet forever: once `expires_at` passes the next
+# acquirer reclaims it. Renew it as you work (each progress heartbeat) so a
+# genuinely long UI session keeps ownership.
+#
+# Usage:
+#   hermes-desktop-lock status                 # exit 0 if free, 1 if held
+#   hermes-desktop-lock acquire [options]      # take the lock (waits up to --wait)
+#   hermes-desktop-lock renew   [--ttl N]      # extend your own lock
+#   hermes-desktop-lock release [--force]      # drop your own lock
+#   hermes-desktop-lock run -- CMD [ARGS...]   # acquire, run, always release
+#
+# acquire options:
+#   --note TEXT   short "what/why" recorded on the lock (shown in status)
+#   --ttl N       seconds before the lock is reclaimable (default: guardrails)
+#   --wait N      seconds to wait for a busy lock before failing (default: guardrails)
+#   --force       reclaim a busy lock immediately (recovery; use with care)
+
+set -euo pipefail
+
+# The guardrail config lives in the DEFAULT hermes root. A dispatcher-spawned
+# worker runs with HERMES_HOME=<root>/profiles/<name>, so resolving $HERMES_HOME
+# directly would look for a per-profile guardrails.yaml (and a per-profile
+# desktop lock, which would defeat fleet-wide serialization). Mirror the
+# engine's own resolution: a profile-shaped HERMES_HOME roots at its
+# grandparent; otherwise HERMES_HOME IS the root. @HERMES_GUARDRAILS_HOME@ is
+# baked in at build time as the fallback when HERMES_HOME is unset.
+hermes_root() {
+  local home="${1:-${HERMES_HOME:-@HERMES_GUARDRAILS_HOME@}}"
+  home="${home%/}"
+  case "$home" in
+    */profiles/*) printf '%s' "$(dirname "$(dirname "$home")")" ;;
+    *) printf '%s' "$home" ;;
+  esac
+}
+
+guardrails_home="${HERMES_GUARDRAILS_HOME:-$(hermes_root)}"
+yaml_file="${HERMES_GUARDRAILS_FILE:-$guardrails_home/guardrails.yaml}"
+
+yaml_get() {
+  local key="$1"
+  [ -f "$yaml_file" ] || return 1
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*:[[:space:]]*//p" "$yaml_file" \
+    | head -n 1 \
+    | sed -e 's/^"//' -e 's/"$//'
+}
+
+value_or() {
+  local key="$1" fallback="$2" got
+  got="$(yaml_get "$key" || true)"
+  if [ -n "$got" ]; then printf '%s' "$got"; else printf '%s' "$fallback"; fi
+}
+
+lock_path="${HERMES_DESKTOP_LOCK:-$(value_or desktop_lock_path "$guardrails_home/run/desktop.lock")}"
+lock_ttl="$(value_or desktop_lock_ttl_seconds 1800)"
+lock_wait="$(value_or desktop_lock_wait_seconds 120)"
+lock_owner_file="$lock_path/owner"
+self_task="${HERMES_KANBAN_TASK:-manual}"
+self_profile="${HERMES_PROFILE:-}"
+
+now() { date +%s; }
+
+# Read one `key=value` line from the owner file (empty when absent).
+meta_get() {
+  [ -f "$lock_owner_file" ] || return 1
+  sed -n "s/^${1}=//p" "$lock_owner_file" | head -n 1
+}
+
+holder_desc() {
+  local task profile note
+  task="$(meta_get task || true)"; [ -n "$task" ] || task="unknown"
+  profile="$(meta_get profile || true)"
+  note="$(meta_get note || true)"
+  printf "task='%s'" "$task"
+  [ -z "$profile" ] || printf " profile='%s'" "$profile"
+  [ -z "$note" ] || printf " note=\"%s\"" "$note"
+}
+
+usage() {
+  cat <<'EOF'
+Usage: hermes-desktop-lock <command>
+
+  status                 report the holder (exit 0 when free, 1 when held)
+  acquire [options]      take the fleet-wide desktop lock
+  renew [--ttl N]        extend your lock's TTL
+  release [--force]      drop your lock
+  run [--] CMD [ARGS...] acquire, run CMD, release on exit
+
+acquire options:
+  --note TEXT  short description recorded on the lock
+  --ttl N      seconds until reclaimable (default from guardrails.yaml)
+  --wait N     seconds to wait when busy (default from guardrails.yaml)
+  --force      reclaim a busy lock now (recovery)
+EOF
+}
+
+mkdir_lock_parent() { mkdir -p "$(dirname "$lock_path")"; }
+
+cmd_acquire() {
+  local note="" ttl="$lock_ttl" wait="$lock_wait" force=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --note) note="${2:-}"; shift 2 ;;
+      --note=*) note="${1#*=}"; shift ;;
+      --ttl) ttl="${2:-}"; shift 2 ;;
+      --ttl=*) ttl="${1#*=}"; shift ;;
+      --wait) wait="${2:-}"; shift 2 ;;
+      --wait=*) wait="${1#*=}"; shift ;;
+      --force) force=1; shift ;;
+      *) echo "hermes-desktop-lock acquire: unexpected argument '$1'" >&2; return 2 ;;
+    esac
+  done
+  note="$(printf '%s' "$note" | tr '\n\r' '  ')"
+  mkdir_lock_parent
+  local deadline
+  deadline=$(( $(now) + wait ))
+  while :; do
+    if mkdir "$lock_path" 2>/dev/null; then
+      {
+        printf 'task=%s\n' "$self_task"
+        printf 'profile=%s\n' "$self_profile"
+        printf 'pid=%s\n' "$$"
+        printf 'note=%s\n' "$note"
+        printf 'acquired_at=%s\n' "$(now)"
+        printf 'expires_at=%s\n' "$(( $(now) + ttl ))"
+      } > "$lock_owner_file"
+      echo "desktop lock acquired ($(holder_desc), ttl=${ttl}s)"
+      return 0
+    fi
+
+    local expires held discard
+    expires="$(meta_get expires_at || true)"
+    if [ -n "$expires" ] && [ "$(now)" -ge "$expires" ]; then
+      held="$(holder_desc)"
+      discard="$lock_path.stale.$$"
+      if mv "$lock_path" "$discard" 2>/dev/null; then
+        rm -rf "$discard"
+        echo "desktop lock: reclaimed an expired lock ($held)" >&2
+        continue
+      fi
+    fi
+
+    if [ "$force" -eq 1 ]; then
+      held="$(holder_desc)"
+      discard="$lock_path.force.$$"
+      if mv "$lock_path" "$discard" 2>/dev/null; then
+        rm -rf "$discard"
+        echo "desktop lock: force-reclaimed a live lock ($held)" >&2
+        continue
+      fi
+    fi
+
+    if [ "$(now)" -ge "$deadline" ]; then
+      echo "desktop lock busy: held by $(holder_desc); waited ${wait}s" >&2
+      return 1
+    fi
+    sleep 2
+  done
+}
+
+cmd_renew() {
+  local ttl="$lock_ttl"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ttl) ttl="${2:-}"; shift 2 ;;
+      --ttl=*) ttl="${1#*=}"; shift ;;
+      *) echo "hermes-desktop-lock renew: unexpected argument '$1'" >&2; return 2 ;;
+    esac
+  done
+  [ -d "$lock_path" ] || { echo "desktop lock: not held" >&2; return 1; }
+  local held
+  held="$(meta_get task || true)"
+  if [ "$held" != "$self_task" ]; then
+    echo "desktop lock: held by $(holder_desc), not task='$self_task'" >&2
+    return 1
+  fi
+  local new_expiry
+  new_expiry=$(( $(now) + ttl ))
+  sed -i "s/^expires_at=.*/expires_at=${new_expiry}/" "$lock_owner_file"
+  echo "desktop lock renewed ($(holder_desc), ttl=${ttl}s)"
+}
+
+cmd_release() {
+  local force=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --force) force=1; shift ;;
+      *) echo "hermes-desktop-lock release: unexpected argument '$1'" >&2; return 2 ;;
+    esac
+  done
+  [ -d "$lock_path" ] || { echo "desktop lock: not held"; return 0; }
+  local held was
+  held="$(meta_get task || true)"
+  if [ "$held" != "$self_task" ] && [ "$force" -ne 1 ]; then
+    echo "desktop lock: held by $(holder_desc), not task='$self_task'; use --force to release it" >&2
+    return 1
+  fi
+  was="$(holder_desc)"
+  rm -rf "$lock_path"
+  echo "desktop lock released (was ${was})"
+}
+
+cmd_status() {
+  if [ ! -d "$lock_path" ]; then
+    echo "desktop lock: free ($lock_path)"
+    return 0
+  fi
+  local expires remaining=""
+  expires="$(meta_get expires_at || true)"
+  if [ -n "$expires" ]; then
+    local left=$(( expires - $(now) ))
+    [ "$left" -lt 0 ] && left=0
+    remaining=" expires_in=${left}s"
+  fi
+  echo "desktop lock: held by $(holder_desc)${remaining} ($lock_path)"
+  return 1
+}
+
+cmd_run() {
+  [ "$#" -gt 0 ] || { echo "hermes-desktop-lock run: missing command" >&2; return 2; }
+  [ "${1:-}" != "--" ] || shift
+  cmd_acquire >/dev/null
+  local status=0
+  "$@" || status=$?
+  cmd_release >/dev/null || true
+  return "$status"
+}
+
+[ "$#" -gt 0 ] || { usage >&2; exit 2; }
+command="$1"; shift
+case "$command" in
+  acquire) cmd_acquire "$@" ;;
+  renew) cmd_renew "$@" ;;
+  release) cmd_release "$@" ;;
+  status) cmd_status "$@" ;;
+  run) cmd_run "$@" ;;
+  help|-h|--help) usage ;;
+  *) echo "hermes-desktop-lock: unknown command '$command'" >&2; usage >&2; exit 2 ;;
+esac

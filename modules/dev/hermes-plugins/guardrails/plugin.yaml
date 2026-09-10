@@ -1,0 +1,20 @@
+name: guardrails
+version: "1.0.0"
+description: >-
+  pre_tool_call hook that structurally bounds every dispatched kanban card.
+  Hermes's hard stop is the dispatcher's per-task max_runtime_seconds (SIGTERM,
+  then SIGKILL, plus a `timed_out` event), and Hermes has no board-level default
+  for it - so an orchestrator that forgets the field creates an unbounded card.
+  This hook injects the fleet default from $HERMES_HOME/guardrails.yaml into
+  kanban_create whenever the caller did not set a usable positive value. An
+  explicit value always wins; the hook never blocks. The live-app gate, the
+  fleet-wide desktop lock, the heartbeat cadence and the loop bound are judgment
+  rules carried by the SOULs and the operate-desktop / delegated-task skills.
+author: "Fleet"
+provides_hooks:
+  - pre_tool_call
+tags:
+  - guardrails
+  - kanban
+  - budget
+license: "MIT"

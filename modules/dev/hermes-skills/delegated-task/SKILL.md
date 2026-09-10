@@ -1,8 +1,8 @@
 ---
 name: delegated-task
-description: "The operating contract for a delegated task - scope pre-flight, the irreversible-action gate, secret hygiene, and the outcome-report format. Load at the start of every task, before the first tool call, so the rules are in context before you act."
-annotation: "Delegated-worker operating contract: scope, gate, hygiene, report"
-version: 1.0.0
+description: "The operating contract for a delegated task - fleet guardrails (live-app gate, desktop lock, run budget, heartbeat, loop bound), scope pre-flight, the irreversible-action gate, secret hygiene, and the outcome-report format. Load at the start of every task, before the first tool call, so the rules are in context before you act."
+annotation: "Delegated-worker operating contract: guardrails, scope, gate, hygiene, report"
+version: 1.1.0
 user-invocable: false
 metadata:
   hermes:
@@ -28,7 +28,38 @@ are - this skill is the procedure. Run it at the start of every task.
 - Do only the assigned task. No "while I'm here" adjacent work, no wandering
   into other apps, accounts, files, or tabs.
 
-## 2. The irreversible-action gate
+## 2. Fleet guardrails
+
+These apply to every task, before the first tool call and for its whole run.
+`hermes-guardrails show` prints the tunables; `~/.hermes/guardrails.yaml` is the
+source of truth.
+
+- **Live applications are off limits unless the task explicitly authorizes
+  driving them.** Your default is verification from a **snapshot** (a copy of
+  the catalog / database / state file), never the captain's live UI. "Check X in
+  the app" is not authorization to raise, focus, click, or type. Visual,
+  creative, and live-UI work on the captain's own apps belongs to the captain -
+  if it is needed and not authorized, stop and ask the dispatcher. See
+  **operate-desktop** for the full gate.
+- **If the task does authorize live driving, take the fleet-wide desktop lock
+  first** (`hermes-desktop-lock acquire`) - a visible/focused desktop is ONE
+  shared resource, so only one expert may drive it at a time. Renew it with each
+  heartbeat (`hermes-desktop-lock renew`) and release it when done, including on
+  failure (`hermes-desktop-lock release`).
+- **Stay inside the run budget** (`hermes-guardrails budget-seconds`). When you
+  approach it, close out with what you have - `kanban_complete` with a partial
+  summary or `kanban_block` with the exact blocker - instead of letting the
+  dispatcher's `max_runtime_seconds` kill the run.
+- **Report progress**: `kanban_heartbeat(note="...")` at least every
+  `hermes-guardrails heartbeat-seconds`, and a `kanban_comment` at each
+  meaningful milestone with the concrete state. No heartbeat past the interval
+  is a stall.
+- **Loop detection is a hard stop**: if you retry the same action or re-patch
+  the same thing `hermes-guardrails retry-bound` times without measurable
+  progress, stop and report the blocker and your exact attempts. Never keep
+  grinding.
+
+## 3. The irreversible-action gate
 
 Before any step, check: is this a **send** / **purchase** / **payment** /
 **delete** / **account-or-system setting change** / **outward-facing post**?
@@ -39,7 +70,7 @@ Before any step, check: is this a **send** / **purchase** / **payment** /
   undone, treat it as irreversible.
 - A CAPTCHA or hard bot-wall is also a stop point - screenshot and return.
 
-## 3. Secret hygiene
+## 4. Secret hygiene
 
 - Never echo, print, log, screenshot, or otherwise expose a secret value -
   not in the report, not in tool output you surface, not in shell history.
@@ -52,7 +83,7 @@ Before any step, check: is this a **send** / **purchase** / **payment** /
 - Use a retrieved credential only in-session, only for the assigned action,
   only for the account the task named.
 
-## 4. Outcome report
+## 5. Outcome report
 
 Report concretely, not as a replay of the process:
 

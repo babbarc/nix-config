@@ -202,6 +202,13 @@ in
       # modules/dev/hermes-home.nix. The alps full brain keeps
       # modules/dev/joy-brain.nix; the wsl path does not import it.
       ../../modules/dev/hermes-agent.nix
+      # Fleet guardrails (wsl-only): the single source of truth for the
+      # live-app / run-budget / heartbeat / loop-bound tunables, the rendered
+      # SOULs + shared skills, the ~/.hermes/guardrails.yaml, and the
+      # hermes-guardrails / hermes-desktop-lock CLIs. Imported before
+      # hermes-home.nix, which consumes its rendered artifacts. See
+      # modules/dev/hermes-guardrails.nix.
+      ../../modules/dev/hermes-guardrails.nix
       ../../modules/dev/hermes-home.nix
       # Purpose-built, AXI-shaped Hermes skill set (browse / web-login /
       # pass-access / operate-desktop / recover-blocked-page / delegated-task),

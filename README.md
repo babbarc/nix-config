@@ -430,7 +430,8 @@ it.
 
 The curated wsl instance does not run the private brain's persona. Its
 default-profile `SOUL.md` is tracked in this repo at `modules/dev/hermes-soul.md`
-and re-pinned to `~/.hermes/SOUL.md` on every activation. It is the captain's
+and re-pinned to `~/.hermes/SOUL.md` on every activation (rendered through the
+`hermesGuardrails.*` tunables - see "Fleet guardrails" below). It is the captain's
 **orchestrator**: intake a task, classify its domain, delegate to an existing
 domain-expert profile through the kanban board, own the design/intake decisions,
 and **never execute the domain work itself**. When no existing expert fits, it
@@ -445,9 +446,9 @@ brain (alps) is unaffected - it keeps joy-brain's own `SOUL.md`.
 
 The repo also tracks the **domain-expert SOUL template** at
 `modules/dev/hermes-expert-soul.md`, materialized to
-`~/.hermes/templates/domain-expert-SOUL.md`. `hermes-expert-new` stamps it onto
-each new expert (substituting name / domain / scope), so the delegated-worker
-contract lives in one reviewable file.
+`~/.hermes/templates/domain-expert-SOUL.md` (rendered the same way).
+`hermes-expert-new` stamps it onto each new expert (substituting name / domain /
+scope), so the delegated-worker contract lives in one reviewable file.
 
 ### Orchestrator + domain-expert fleet (wsl)
 
@@ -494,12 +495,58 @@ expert's own writable area (its profile's `skills/` and `plugins/`, or a
   read-only symlinks. A rebuilt host (or a deleted profile) loses runtime-created
   experts, their memory, and their learned skills; the base set survives.
 
-### Plugins: `pass-enforcement` (wsl)
+### Fleet guardrails (wsl)
+
+The captain's three rules after the 2026-09-10 live incident (an expert ground
+for ~44 minutes driving the captain's live Lightroom UI - 5,016 log lines, 25
+window raises, 16 patch rounds - with no interim report) are enforced across the
+fleet by `modules/dev/hermes-guardrails.nix`:
+
+1. **No live-app interaction without an explicit task-level instruction.** The
+   default is read-only verification from a snapshot (a copy of the catalog /
+   state); `bring_to_front` / raise / focus / click / type are only allowed when
+   the assigned card names the app and the action. Visual/creative/live-UI work
+   on the captain's own apps stays with the captain. Carried by
+   `hermes-soul.md`, the expert SOUL template, and the `operate-desktop` /
+   `delegated-task` skills.
+2. **UI work is serialized fleet-wide.** A visible/focused desktop is one
+   shared resource. `hermes-desktop-lock` (packaged by the module) is a
+   TTL-based advisory lock at `$HERMES_HOME/run/desktop.lock`, shared by every
+   expert profile because they all run as the same unix user. A live-app card
+   acquires it before driving the desktop, renews it each heartbeat, and
+   releases it when done - including on failure. A dead holder's lock expires
+   and is reclaimed.
+3. **Bounded execution, heartbeat, loop detection.** The orchestrator puts
+   `max_runtime_seconds` on every card; the `guardrails` Hermes plugin
+   (below) injects the fleet default into any `kanban_create` that omits it, so
+   a card can never be dispatched unbounded. The dispatcher's hard stop
+   (SIGTERM/SIGKILL + `timed_out` event) is the backstop. Experts must post a
+   `kanban_heartbeat`/`kanban_comment` at the heartbeat interval, and hard-stop
+   and report after `retry_bound` identical retries without measurable progress.
+
+Every tunable lives in the `hermesGuardrails.*` home-manager options
+(`modules/dev/hermes-guardrails.nix`; defaults `run_budget_seconds` 1800,
+`heartbeat_seconds` 300, `retry_bound` 3, `desktop_lock_ttl_seconds` 1800). The
+module renders the SOULs and shared skills through those values, writes
+`~/.hermes/guardrails.yaml`, and packages two CLIs:
+
+- `hermes-guardrails show|values|budget-seconds|heartbeat-seconds|retry-bound|lock-path`
+  prints the effective tunables (the SOULs and skills tell agents to read the
+  values from here instead of hardcoding them).
+- `hermes-desktop-lock status|acquire|renew|release|run` is the fleet-wide
+  live-desktop lock.
+
+`nix build .#nixosConfigurations.wsl.config.system.build.toplevel` builds the
+whole wired stack; the alps full brain is unaffected (it does not import this
+module).
+
+### Plugins: `pass-enforcement` and `guardrails` (wsl)
 
 `modules/dev/hermes-plugins.nix` vendors native Hermes plugins under
 `modules/dev/hermes-plugins/<name>/` and materializes them into
-`~/.hermes/plugins/`. The one plugin so far is **`pass-enforcement`**: a
-`pre_tool_call` hook that structurally blocks the secret-dumping `pass` forms -
+`~/.hermes/plugins/`. Two ship today, both `pre_tool_call` hooks.
+
+**`pass-enforcement`** structurally blocks the secret-dumping `pass` forms -
 `pass show <path>` and a bare `pass <path>` (which `pass` treats as show),
 including the `-c`/`-q` variants and forms reached through a pipe, `sudo`/env
 prefix, or `bash -c` - in the `terminal` toolset. This is defense-in-depth for
@@ -511,11 +558,18 @@ It is deliberately precise - `pass-axi`/`pass-to`/`pass-env`,
 `pass otp|ls|find|grep|insert|edit|git|init`, `hermes-web-login`, `recover-page`
 and unrelated commands that merely contain "pass" all still run.
 
-Unlike skills, a plugin is opt-in: the activation also runs
-`hermes plugins enable pass-enforcement --no-allow-tool-override` (idempotent,
+**`guardrails`** is the mechanical half of the run-budget rule: a
+`pre_tool_call` hook that injects the fleet default `max_runtime_seconds` into
+a `kanban_create` that did not set a usable positive value (an explicit value
+always wins; it never blocks). Hermes has no board-level default for the
+dispatcher's hard-stop cap, so this is what makes "no unbounded card" true even
+when the orchestrator forgets the field.
+
+Unlike skills, plugins are opt-in: the activation also runs
+`hermes plugins enable <name> --no-allow-tool-override` for each (idempotent,
 warn-not-die). `modules/dev/hermes-home.nix` creates `~/.hermes/plugins` as a
-real directory, so this repo's plugin is symlinked straight in. Validate a
-plugin dir with `hermes plugins doctor modules/dev/hermes-plugins/pass-enforcement`.
+real directory, so this repo's plugins are symlinked straight in. Validate a
+plugin dir with `hermes plugins doctor modules/dev/hermes-plugins/<name>`.
 The alps full brain does not import this module.
 
 ### What is deliberately NOT vendored
