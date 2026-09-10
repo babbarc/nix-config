@@ -196,18 +196,17 @@ in
       # modules/dev/browser-proxy-windows.nix.
       ../../modules/dev/browser-proxy-windows.nix
       # Hermes agent (wsl-only): the pinned uv-installed engine plus the
-      # joy-brain instantiation. Both need WSL interop / localhost CDP proxy,
-      # so they are deliberately NOT in the shared modules/dev list the
-      # laptop/server hosts import. See modules/dev/hermes-agent.nix and
-      # modules/dev/joy-brain.nix.
+      # curated, self-contained Hermes home. Both need WSL interop / localhost
+      # CDP proxy, so they are deliberately NOT in the shared modules/dev list
+      # the laptop/server hosts import. See modules/dev/hermes-agent.nix and
+      # modules/dev/hermes-home.nix. The alps full brain keeps
+      # modules/dev/joy-brain.nix; the wsl path does not import it.
       ../../modules/dev/hermes-agent.nix
-      ../../modules/dev/joy-brain.nix
+      ../../modules/dev/hermes-home.nix
       # Purpose-built, AXI-shaped Hermes skill set (browse / web-login /
       # pass-access / operate-desktop / recover-blocked-page / delegated-task),
-      # vendored in this repo and symlinked into ~/.hermes/skills/. Replaces the
-      # browser + security skills the curated joy-brain instance used to borrow
-      # (joy-brain.nix `includedSkills` is now empty). wsl-only. See
-      # modules/dev/hermes-skills.nix.
+      # vendored in this repo and symlinked into ~/.hermes/skills/. wsl-only.
+      # See modules/dev/hermes-skills.nix.
       ../../modules/dev/hermes-skills.nix
       # Repo-vendored native Hermes plugins (wsl-only): the pass-enforcement
       # pre_tool_call hook that structurally blocks `pass show <path>` / bare

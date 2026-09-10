@@ -4,15 +4,12 @@ let
 
   # Purpose-built, AXI-shaped skill set for the curated (wsl) Hermes instance -
   # the firstmate-delegated browser + Windows-desktop + secure-`pass` operator.
-  # These REPLACE the joy-brain browser/security skills that
-  # modules/dev/joy-brain.nix used to symlink in (its `includedSkills` is now
-  # empty - see the cutover note there). They are vendored in this repo, the
-  # same posture as modules/dev/hermes-soul.md: repo-tracked, restored on every
-  # rebuild, never pulled from the private joy-brain clone.
+  # They are vendored in this repo, the same posture as
+  # modules/dev/hermes-soul.md and modules/dev/hermes-bin/: repo-tracked,
+  # restored on every rebuild, never pulled from a private external repo.
   #
   # Scope: wsl only (captain decision 2026-09-09). Deliberately NOT imported by
-  # the alps full brain (hosts/hermes/home.nix), which keeps joy-brain's own
-  # skill tree.
+  # the alps full brain (hosts/hermes/home.nix), which keeps its own skill tree.
   #
   # This module materializes the skills and packages the CLIs they call
   # (`pass-axi` for pass-access, `hermes-web-login` for web-login, `hermes-browse`
@@ -127,10 +124,10 @@ in
   # (tools/skills_tool.py `_find_all_skills` / agent/skill_utils.py
   # `iter_skill_index_files`).
   #
-  # Runs after joyBrainInstantiate (which creates ~/.hermes and its skills/
-  # dir, and - post-cutover - prunes any stale joy-brain skill symlinks).
+  # Runs after hermesHomeInstantiate (which creates ~/.hermes and its real
+  # skills/ dir).
   home.activation.hermesSkillsInstall =
-    lib.hm.dag.entryAfter [ "joyBrainInstantiate" ] ''
+    lib.hm.dag.entryAfter [ "hermesHomeInstantiate" ] ''
       _home=${lib.escapeShellArg hermesHome}
       $DRY_RUN_CMD mkdir -p "$_home/skills"
       for _s in ${lib.escapeShellArgs skillNames}; do

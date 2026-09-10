@@ -119,7 +119,7 @@ is captain-run as the hermes user: `nix run home-manager -- switch -b hm-bak
 Direct-install migration (Phase B, 2026-09-09) now declares the future
 container-free shape ALONGSIDE the quadlets in the same profile
 (`hosts/hermes/home.nix` imports `modules/dev/{hermes-agent,joy-brain,browser-proxy-linux,hermes-alps-services}.nix`
-with `hermesAgent.standaloneDeps = true` + `joyBrain.full = true`): engine
+with `hermesAgent.standaloneDeps = true`): engine
 (same `hermesRev`), full-brain instantiation, a Linux host-Chrome browser
 proxy (`containers/systemd/browser-proxy-linux.py`, Q1a), and systemd --user
 units for gateway/vision-bridge/baileys-watch/qmd (Q2a native @tobilu/qmd,
@@ -211,7 +211,7 @@ The `wsl` host's Hermes agent drives the Windows desktop through
 [cua-driver](https://cua.ai/cua-driver), registered as a Hermes MCP server.
 `modules/dev/hermes-agent.nix` (option `hermesAgent.cuaDriver`, enabled in
 `hosts/wsl/configuration.nix`; off on the alps `hermes` host, which has no
-Windows side) runs at activation, after `joyBrainInstantiate` so it edits
+Windows side) runs at activation, after `hermesHomeInstantiate` so it edits
 the seeded `~/.hermes/config.yaml`:
 
     hermes mcp add cua-driver --command powershell.exe \
@@ -223,9 +223,10 @@ which keeps pure eval working) and `setup.sh` detects the real Windows
 account on the `wsl` role via WSL interop (`powershell.exe`/`cmd.exe`, then
 a `/mnt/c/Users` scan) and writes it to `~/.config/dotfiles/env`.
 
-idempotent (skipped when `~/.hermes/config.yaml` already lists `cua-driver`)
-and warn-not-die. The Windows-side install (per-user, no admin, autostart
-off) is `cua-driver-bootstrap.ps1` at the repo root, which invokes the
+The registration is idempotent (skipped when `~/.hermes/config.yaml` already
+lists `cua-driver`) and warn-not-die. The Windows-side install (per-user, no
+admin, autostart off) is `cua-driver-bootstrap.ps1` at the repo root, which
+invokes the
 official `https://cua.ai/driver/install.ps1` with `-NoAutoStart`. Hermes
 reaches the driver over WSL interop (`powershell.exe`), so the interop pins
 in `hosts/wsl/configuration.nix` are load-bearing. cua-driver is
@@ -312,13 +313,14 @@ required those mounts and still failed interop, which is why it was removed.
 the marker process, never the captain's Chrome), and `GET /status` reports
 `{chrome, visible}`. It does not start/stop Chrome, so single-instance +
 idle-stop invariants hold.
-## Hermes agent on wsl (install + joy-brain instantiation)
+## Hermes agent on wsl (install + self-contained home)
 
-`modules/dev/hermes-agent.nix` and `modules/dev/joy-brain.nix` (imported only
+`modules/dev/hermes-agent.nix` and `modules/dev/hermes-home.nix` (imported only
 by `hosts/wsl/configuration.nix`, never the shared `modules/dev` list) install
-the Hermes agent and instantiate the captain's private joy-brain as its home.
-Full rationale + the curated skill subset + the not-vendored list live in README
-"Hermes agent (wsl)"; the sharp edges worth knowing here:
+the Hermes agent and materialize a generic, self-contained Hermes home - no
+private clone and no SSH to `alps`. Full rationale + the curated skill subset
++ the not-vendored list live in README "Hermes agent (wsl)"; the sharp edges
+worth knowing here:
 
 - Hermes is a pinned `uv sync --extra all --locked --python 3.11` of
   `github:NousResearch/hermes-agent` at tag `v2026.8.31` (revision
@@ -329,30 +331,26 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   Permission denied" - verified). Upstream's flake packaging (uv2nix + npm
   TUI/web) is deliberately not adopted (5 extra inputs, no binary cache,
   multi-hour builds) - see the module header.
-- joy-brain clones at activation from `ssh://git@alps:2222/babbarc/joy-brain.git`
-  into `~/.local/share/joy-brain`; `~/.hermes` (HERMES_HOME) is materialized
-  from it - config.yaml is seeded at first activation (from the clone's own
-  config.yaml when it carries one, else from the module's `browser.cdp_url`
-  base - Hermes treats the file as optional per-user state its runtime
-  creates) and that override is deep-merged on every activation (yq `*`
-  operator, so runtime edits survive), everything else is symlinked. Exception:
-  the wsl `SOUL.md` is NOT joy-brain's persona - the curated instance
-  (`joyBrain.full = false`) re-pins `~/.hermes/SOUL.md` to the repo-tracked
-  `modules/dev/hermes-soul.md` (the firstmate-delegated browsing + Windows-desktop
-  specialist role) on every activation; the full brain (alps) still symlinks
-  joy-brain's own. The joy-brain rev is a
-  single `joyBrainRev` string in `modules/dev/joy-brain.nix` (currently pinned
-  to `8c95745461bf7b01dbcc17659853bad62f35bd88`; empty degrades to clone HEAD +
-  warn so a missing pin never hard-fails activation).
-- The curated instance no longer borrows joy-brain skills. It runs a
-  purpose-built, AXI-shaped set vendored in this repo at
+- `modules/dev/hermes-home.nix` materializes `~/.hermes` (HERMES_HOME) from
+  repo-owned content only: a minimal `config.yaml` seed (provider/model,
+  `web.search_backend: ddgs`, `browser.cdp_url`) that is deep-merged with
+  `browser.cdp_url` on every activation (yq `*`, so runtime edits survive);
+  `~/.hermes/SOUL.md` re-pinned to `modules/dev/hermes-soul.md` (the
+  firstmate-delegated browsing + Windows-desktop specialist role); the vendored
+  `~/.hermes/bin` pass helpers (`pass-to`/`pass-inspect`/`pass-env`, byte-for-byte
+  from the private clone's `scripts/`, committed under `modules/dev/hermes-bin/`);
+  and real `skills/` + `plugins/` dirs. It also removes any stale clone-pointing
+  dir symlink left by an older generation. The private clone now lives only on
+  the alps full brain (`modules/dev/joy-brain.nix`, `joyBrainRev` pin
+  `8c95745461bf7b01dbcc17659853bad62f35bd88`; empty degrades to clone HEAD + warn),
+  which the wsl host does not import.
+- The curated instance runs a purpose-built, AXI-shaped skill set vendored in
+  this repo at
   `modules/dev/hermes-skills/<skill>/SKILL.md` (`browse`, `web-login`,
   `pass-access`, `operate-desktop`, `recover-blocked-page`, `delegated-task`),
   symlinked into `~/.hermes/skills/` by `modules/dev/hermes-skills.nix`
   (imported only by `hosts/wsl/configuration.nix`, `entryAfter
-  joyBrainInstantiate`). `joyBrain.nix`'s `includedSkills` is now `[ ]` and its
-  curated branch prunes any stale clone-targeted skill symlink on activation;
-  the list stays as the one place to re-add a joy-brain skill if ever needed.
+  hermesHomeInstantiate`).
   `pass-axi` (the `pass-access` CLI) is packaged by `hermes-skills.nix`
   (`pkgs.writeShellApplication`, on PATH): metadata-only by construction (no
   show/get/cat), `inspect`/`otp` decrypt only via the `~/.hermes/bin` helpers +
@@ -394,11 +392,12 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   for repo-local `./.hermes/skills`. Verify after activation with `hermes
   skills list` (source `local`, must show the six). Design report:
   `firstmate/data/hermes-axi-skills-design/report.md`. The alps full brain is
-  unaffected - `joyBrain.full = true` still symlinks joy-brain's whole tree.
-- joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
-  `http://localhost:8181/mcp` (the QMD sidecar on alps). When the clone
-  carries one, it rides along in the seeded config but is OUT OF SCOPE on wsl
-  - no qmd backend there. See README.
+  unaffected - `modules/dev/joy-brain.nix` still symlinks its whole tree.
+- On alps, joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
+  `http://localhost:8181/mcp` (the QMD sidecar), and the full-brain
+  instantiation carries it along. That is alps-only: the wsl seed declares no
+  MCP servers, and `modules/dev/hermes-agent.nix` adds the one it uses
+  (`cua-driver`) itself. See README "MCP servers".
 - `HERMES_HOME` is `home.sessionVariables`, so it reaches interactive shells
   only (same gap firstmate.nix documents). Running `hermes gateway` as a
   systemd user service (or firstmate dispatch) is deliberately out of scope for
@@ -422,17 +421,15 @@ hook that structurally blocks the secret-dumping `pass` forms
 DD7 cap.3 of the Hermes AXI-skills design. It deliberately does NOT touch
 `pass-axi`/`pass-to`/`pass-env`, `pass otp|ls|find|grep|insert|edit|git|init`,
 `hermes-web-login`, or unrelated commands containing "pass". Precedent for the
-hook shape: the bundled `approval-gates` plugin (`~/.hermes/plugins/` on the
-host, readable). Validate a plugin dir with `hermes plugins doctor <path>`;
+hook shape: Hermes's bundled `approval-gates` plugin (alps full brain).
+Validate a plugin dir with `hermes plugins doctor <path>`;
 the runtime dispatch entry point is
 `hermes_cli.plugins._dispatch_pre_tool_call_hooks`.
 
-Sharp edge: `joyBrainInstantiate` symlinks the whole `~/.hermes/plugins` dir
-into the joy-brain clone, so the activation first converts that dir-symlink to
-a real directory (keeping the clone's plugins as child symlinks) before adding
-this repo's - idempotent, only while `plugins/` is still a symlink. Unlike
-skills, a plugin also needs `hermes plugins enable <name>` (activation does this
-idempotently with `--no-allow-tool-override`, warn-not-die).
+`modules/dev/hermes-home.nix` creates `~/.hermes/plugins` as a real directory,
+so `modules/dev/hermes-plugins.nix` simply symlinks this repo's plugin in.
+Unlike skills, a plugin also needs `hermes plugins enable <name>` (activation
+does this idempotently with `--no-allow-tool-override`, warn-not-die).
 
 ## Maintaining this file
 

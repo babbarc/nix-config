@@ -157,9 +157,9 @@ cmd_inspect() {
   name="$(resolve_entry "$1")" || exit $?
 
   [ -x "$hermes_bin/pass-to" ] || die 6 "HELPER_MISSING: $hermes_bin/pass-to" \
-    "The ~/.hermes helpers are materialized by home-manager activation (modules/dev/joy-brain.nix)"
+    "The ~/.hermes helpers are materialized by home-manager activation (modules/dev/hermes-home.nix)"
   [ -e "$hermes_bin/pass-inspect" ] || die 6 "HELPER_MISSING: $hermes_bin/pass-inspect" \
-    "The ~/.hermes helpers are materialized by home-manager activation (modules/dev/joy-brain.nix)"
+    "The ~/.hermes helpers are materialized by home-manager activation (modules/dev/hermes-home.nix)"
 
   local meta
   if ! meta="$("$hermes_bin/pass-to" "$name" -- "$hermes_bin/pass-inspect" 2>/dev/null)"; then
