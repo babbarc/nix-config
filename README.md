@@ -341,7 +341,7 @@ firstmate-delegated role, **vendored in this repo** under
 
 | Skill | Purpose |
 | --- | --- |
-| `browse` | Drive the captain's real Windows Chrome for authenticated web tasks via the `chrome-devtools-axi` CLI over the CDP proxy; curl-vs-browser routing; proxy warm-up; verify-each-step discipline; stop points; a lightweight web-search route. |
+| `browse` | Drive the captain's real Windows Chrome for authenticated web tasks via the `hermes-browse` wrapper (the `chrome-devtools-axi` CLI over the CDP proxy); curl-vs-browser routing; automatic proxy warm-up; verify-each-step discipline; stop points. Searches go through the native `web_search` tool (keyless `web-ddgs` backend), not Chrome. |
 | `web-login` | Zero-exposure credential/OTP entry into a browser form - the secret is read from `pass` internally, never through a tool parameter. Owns the entire login surface. |
 | `pass-access` | Safe `pass` store access - find / ls / inspect / otp / doctor - metadata only, the secret never reaches stdout. |
 | `operate-desktop` | Guide (no CLI) for operating the Windows desktop through the `cua-driver` MCP tools with an observe -> act -> verify loop. |
@@ -362,12 +362,18 @@ fallback behind `browse`, and native `computer_use` remains alongside the
 `~/.password-store`. It is metadata-only by construction - there is no
 `show`/`get`/`cat`; `inspect` and `otp` decrypt only through the
 `~/.hermes/bin` helpers plus the `pass-otp` extension, and `doctor` prints a
-GPG/env/`.gpg-id`/secret-key/decrypt-probe pass-fail matrix. The remaining
-wrapper binaries the SKILL.md files point at (`hermes-web-login`,
-`recover-page`) and the pinned/proxy-wired `chrome-devtools-axi` land in
-follow-up changes; those SKILL.md files document the interim (no-wrapper)
-path. Standalone web search is currently a route inside `browse`; a first-class
-`search` path is a planned follow-up.
+GPG/env/`.gpg-id`/secret-key/decrypt-probe pass-fail matrix. The `web-login`
+(`hermes-web-login`) and `browse` (`hermes-browse`) CLIs are packaged the same
+way. `hermes-browse` is a thin launcher: it points `chrome-devtools-axi` at the
+CDP proxy, does the cold-start warm-up (`POST :3335/show`, poll
+`:3333/json/version`), and retries once on a lost target - `chrome-devtools-axi`
+itself is resolved from PATH (npm global, pinned by
+`modules/dev/agent-cli-tools.nix`), never installed by the wrapper. Standalone
+web search is the native `web_search` tool: `modules/dev/hermes-agent.nix`
+installs `ddgs` into the Hermes venv and enables the keyless `web-ddgs` backend
+(`web-brave-free` is bundled but needs an API key, so it stays disabled). The
+one remaining wrapper the SKILL.md files still point at as a follow-up is
+`recover-page`; that SKILL.md documents the interim (no-wrapper) path.
 
 joy-brain's own `includedSkills` list (`modules/dev/joy-brain.nix`) is now
 empty. It stays as the single documented place to re-add a joy-brain skill if a

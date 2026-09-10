@@ -15,10 +15,10 @@ let
   # skill tree.
   #
   # This module materializes the skills and packages the CLIs they call
-  # (`pass-axi` for pass-access, `hermes-web-login` for web-login). The remaining
-  # wrapper binary the SKILL.md files point at (recover-page) and the
-  # chrome-devtools-axi proxy env/warm-up wrapper land in follow-up changes;
-  # those SKILL.md files still document their interim path.
+  # (`pass-axi` for pass-access, `hermes-web-login` for web-login, `hermes-browse`
+  # for browse). The remaining wrapper binary the SKILL.md files point at
+  # (recover-page) lands in a follow-up change; that SKILL.md still documents
+  # its interim path.
   skillsSrc = ./hermes-skills;
   skillNames = builtins.attrNames
     (lib.filterAttrs (_: t: t == "directory") (builtins.readDir skillsSrc));
@@ -77,6 +77,25 @@ let
         ${./hermes-skills/web-login/scripts/hermes-web-login} "$@"
     '';
   };
+
+  # hermes-browse: the `browse` skill's launcher for the chrome-devtools-axi
+  # CLI. Its only jobs are to point the CLI at the persistent CDP proxy
+  # (CHROME_DEVTOOLS_AXI_BROWSER_URL=http://localhost:3333), do the cold-start
+  # warm-up against the idle-stopped proxy Chrome (POST :3335/show, then poll
+  # :3333/json/version for webSocketDebuggerUrl), and retry the command once if
+  # the first target lookup loses the race with a just-woken Chrome.
+  #
+  # chrome-devtools-axi is an npm global pinned by
+  # modules/dev/agent-cli-tools.nix (`npm install -g`), NOT a nix package - so
+  # it is resolved from PATH at runtime and is deliberately absent from
+  # runtimeInputs; this wrapper never installs it. runtimeInputs pins only the
+  # warm-up userland (curl for the probes, coreutils for `sleep`) so it works
+  # from a non-interactive `hermes` call, not just an interactive shell.
+  hermesBrowse = pkgs.writeShellApplication {
+    name = "hermes-browse";
+    runtimeInputs = with pkgs; [ curl coreutils ];
+    text = builtins.readFile ./hermes-skills/browse/scripts/hermes-browse;
+  };
 in
 {
   # Skill discovery needs NO trust/enable step: Hermes scans
@@ -99,8 +118,9 @@ in
       done
     '';
 
-  # `pass-axi` (pass-access) and `hermes-web-login` (web-login) on PATH via the
-  # nix profile so they resolve for the Hermes agent regardless of shell. Both
-  # read the captain's real store at ~/.password-store.
-  home.packages = [ passAxi hermesWebLogin ];
+  # `pass-axi` (pass-access), `hermes-web-login` (web-login) and `hermes-browse`
+  # (browse) on PATH via the nix profile so they resolve for the Hermes agent
+  # regardless of shell. `pass-axi` / `hermes-web-login` read the captain's real
+  # store at ~/.password-store; `hermes-browse` drives the CDP proxy Chrome.
+  home.packages = [ passAxi hermesWebLogin hermesBrowse ];
 }

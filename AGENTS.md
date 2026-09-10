@@ -356,9 +356,23 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   is read inside the script via the `~/.hermes/bin/pass-to` helper and pushed
   GPG -> pipe -> memory -> CDP `Runtime.evaluate` -> DOM (never an arg, stdout,
   or tool-call record); CDP target auto-discovered from
-  `http://localhost:3333/json/version`. The remaining wrapper binary
-  (`recover-page`) and the proxy-wired `chrome-devtools-axi` are follow-up PRs
-  - those SKILL.md files carry the interim path. Skill discovery needs NO trust
+  `http://localhost:3333/json/version`. `hermes-browse` (the `browse` CLI) is
+  packaged the same way (`writeShellApplication` reading
+  `modules/dev/hermes-skills/browse/scripts/hermes-browse`): a thin launcher
+  that points `chrome-devtools-axi` at the CDP proxy, does the cold-start
+  warm-up (`POST :3335/show`, poll `:3333/json/version` for
+  `webSocketDebuggerUrl`), and retries once on a lost target. `chrome-devtools-axi`
+  is resolved from PATH at runtime (npm global pinned by
+  `modules/dev/agent-cli-tools.nix`), deliberately not a nix runtimeInput, and
+  the wrapper never installs it. Standalone web search is the native
+  `web_search` tool: `modules/dev/hermes-agent.nix` (`hermesWebSearch`
+  activation) `uv pip install`s `ddgs` into the Hermes venv - re-added every
+  rebuild since the preceding `uv sync --locked` prunes it - enables the
+  bundled keyless `web-ddgs` plugin, and pins `web.search_backend: ddgs`
+  (`web-brave-free` is bundled but needs `BRAVE_SEARCH_API_KEY`, so it stays
+  disabled). The one remaining wrapper binary the SKILL.md files still point at
+  as a follow-up PR is `recover-page`; that SKILL.md carries the interim path.
+  Skill discovery needs NO trust
   step: Hermes scans
   `~/.hermes/skills/` recursively (`os.walk` follows symlinks) and any
   `SKILL.md` dir registers as a `local` skill; `hermes skills trust` is only

@@ -131,6 +131,50 @@ in
         $DRY_RUN_CMD ln -sfn "${venv}/bin/hermes" "${config.home.homeDirectory}/.local/bin/hermes"
       fi
     '';
+
+    # Native keyless web search for the Hermes agent. The `web` toolset is
+    # enabled but ships no backend, so `web_search` returns nothing until one
+    # is wired. `web-brave-free` is bundled but NOT keyless (it needs
+    # BRAVE_SEARCH_API_KEY, unset here - its is_available() is False); `web-ddgs`
+    # is the only bundled keyless backend, and all it needs is the `ddgs` Python
+    # package importable in the Hermes venv - exactly what `hermes tools`
+    # installs through its own post-setup hook (`uv pip install -U ddgs`). We do
+    # the same, declaratively:
+    #
+    #   1. install `ddgs` into the venv - plain install, no `-U`, so it does not
+    #      drift the uv.lock-pinned deps (ddgs only needs click>=8.1.8, which
+    #      the lock already satisfies). This runs after hermesAgentInstall, so
+    #      the `uv sync --locked` there - which prunes anything outside the lock,
+    #      ddgs included - has already run; this step re-adds it every rebuild.
+    #   2. enable the web-ddgs plugin (idempotent) so it shows in
+    #      `hermes plugins list`.
+    #   3. pin `web.search_backend: ddgs` so `web_search` selects it directly
+    #      instead of laddering toward a managed/paid backend.
+    #
+    # Runs after joyBrainInstantiate so the seeded ~/.hermes/config.yaml is the
+    # file that gets the plugin + backend entries. Warn-not-die, guarded on the
+    # hermes CLI and the venv being present - same posture as hermesCuaDriver.
+    home.activation.hermesWebSearch =
+      lib.hm.dag.entryAfter [ "joyBrainInstantiate" "hermesAgentInstall" ] ''
+        PATH="$HOME/.local/bin:$PATH"
+        export HERMES_HOME=${lib.escapeShellArg hermesHome}
+        _uv=${pkgs.uv}/bin/uv
+        _py=${lib.escapeShellArg "${venv}/bin/python"}
+        if [ ! -x "$_py" ]; then
+          echo "warning: hermes venv not built yet - web-ddgs setup skipped (rerun activation once hermes has installed)" >&2
+        elif ! command -v hermes >/dev/null 2>&1; then
+          echo "warning: hermes CLI not on PATH yet - web-ddgs setup skipped (rerun activation once hermes has installed)" >&2
+        else
+          $DRY_RUN_CMD "$_uv" pip install --python "$_py" ddgs \
+            || echo "warning: could not install ddgs into the hermes venv (offline?) - retry later with: $_uv pip install --python $_py ddgs" >&2
+          $DRY_RUN_CMD hermes plugins enable web-ddgs \
+            || echo "warning: could not enable the web-ddgs plugin - retry later with: hermes plugins enable web-ddgs" >&2
+          if [ "$(hermes config get web.search_backend 2>/dev/null || true)" != "ddgs" ]; then
+            $DRY_RUN_CMD hermes config set web.search_backend ddgs \
+              || echo "warning: could not set web.search_backend=ddgs - retry later with: hermes config set web.search_backend ddgs" >&2
+          fi
+        fi
+      '';
   }
 
   (lib.mkIf config.hermesAgent.cuaDriver {
