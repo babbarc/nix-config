@@ -7,6 +7,10 @@
 # no gateway unit and no gateway process, so a fleet of experts could never
 # drain a board. This unit is the dispatcher's host.
 #
+# The board itself (~/.hermes/kanban.db) is declared here too - see the
+# hermesKanbanInit activation below. A fresh host has no board, and nothing
+# else in the repo creates one.
+#
 # Deliberately NOT the alps module: modules/dev/hermes-alps-services.nix owns
 # the full-brain services (vision-bridge, baileys-watch, qmd, host CUPS) that
 # only exist on the joy host. This one is the single unit the wsl curated home
@@ -83,4 +87,30 @@ in
       WantedBy = [ "default.target" ];
     };
   };
+
+  # The dispatcher drains a board: `hermes gateway run` promotes ready cards
+  # and spawns their assignee workers, and the orchestrator's kanban tools all
+  # read `~/.hermes/kanban.db`. A fresh host has none, so the board must be
+  # created on first activation or the fleet has nothing to drain. Declared
+  # here, next to the dispatcher it exists for, and therefore wsl-only - the
+  # alps full brain keeps its own lifecycle.
+  #
+  # `hermes kanban init` is documented idempotent ("Create kanban.db if
+  # missing") and also re-runs the additive migration pass, so an existing
+  # board is preserved and an older one is brought current; re-running on every
+  # activation is safe. Runs after hermesAgentInstall (which exposes the
+  # `hermes` CLI) and hermesHomeInstantiate (which creates ~/.hermes), and is
+  # warn-not-die like the repo's other hermes activations, so an offline or
+  # first-run install never breaks activation.
+  home.activation.hermesKanbanInit =
+    lib.hm.dag.entryAfter [ "hermesAgentInstall" "hermesHomeInstantiate" ] ''
+      PATH="$HOME/.local/bin:$PATH"
+      export HERMES_HOME=${lib.escapeShellArg hermesHome}
+      if ! command -v hermes >/dev/null 2>&1; then
+        echo "warning: hermes CLI not on PATH yet - kanban board init skipped (rerun activation once hermes has installed)" >&2
+      else
+        $DRY_RUN_CMD hermes kanban init \
+          || echo "warning: could not initialize the kanban board - retry later with: hermes kanban init" >&2
+      fi
+    '';
 }
