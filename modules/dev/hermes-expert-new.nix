@@ -15,8 +15,11 @@
 # resolves from a non-interactive Hermes `terminal` tool call, not just an
 # interactive shell. It reads the runtime artifacts the activation materializes
 # - the expert SOUL template at $HERMES_HOME/templates/domain-expert-SOUL.md
-# and the pass-enforcement plugin at $HERMES_HOME/plugins/pass-enforcement - so
-# it fails with a clear message if run before those exist.
+# and the repo base plugins at $HERMES_HOME/plugins/{pass-enforcement,guardrails}
+# - so it fails or warns clearly if run before those exist. Its
+# `--sync-plugins <name>|--all` mode copies + enables those plugins on an
+# existing profile, which is the fix path for an expert created before a
+# plugin existed.
 { pkgs, ... }:
 {
   home.packages = [

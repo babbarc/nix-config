@@ -2,27 +2,34 @@
 # fleet), added after the 2026-09-10 live incident: the `photo-book-curator`
 # expert ground for ~44 minutes on a live-Lightroom UI spot-check - a 5,016-line
 # log, 25 window raises, 16 patch rounds on one helper - with no interim report.
+# A first pass of guardrails then failed live: after the fleet was un-paused, the
+# dispatcher reclaimed an orphaned card and the same expert drove the captain's
+# LIVE Lightroom again, because (a) the rule only blocked live-app interaction
+# *without an explicit task instruction* - and the orchestrator-authored card
+# carried one, so the expert treated the card as authorization - and (b) the
+# guardrails plugin was not present on experts created before it existed.
 #
-# This module is the SINGLE SOURCE OF TRUTH for the guardrail tunables (the
-# captain's three concerns: live apps are off limits without an explicit
-# instruction, a visible desktop is one shared resource, and a run must be
-# bounded/quiet-free). It:
+# This module is the SINGLE SOURCE OF TRUTH for the guardrail tunables. It:
 #
 #   1. declares `hermesGuardrails.*` options (overridable from
 #      hosts/wsl/configuration.nix),
 #   2. renders the orchestrator SOUL, the expert SOUL template and the shared
 #      skills through those values, so the numbers in the prose come from the
 #      options instead of being scattered magic numbers,
-#   3. writes ~/.hermes/guardrails.yaml (the machine-readable copy the two
-#      helper CLIs read), and
-#   4. packages `hermes-guardrails` (print the tunables) and
-#      `hermes-desktop-lock` (the fleet-wide live-desktop lock).
+#   3. writes ~/.hermes/guardrails.yaml (the machine-readable copy the helper
+#      CLIs and the `guardrails` plugin read), and
+#   4. packages `hermes-guardrails` (print the tunables),
+#      `hermes-desktop-lock` (the fleet-wide live-desktop lock), and
+#      `hermes-live-app-authorize` (the captain-only per-task grant for
+#      live-app control).
 #
-# The mechanical half of the budget bound is the `guardrails` Hermes plugin
-# (modules/dev/hermes-plugins/guardrails): it injects the fleet default
-# `max_runtime_seconds` into every `kanban_create` that lacks one, so a card
-# cannot be dispatched unbounded. The dispatcher then hard-stops the worker at
-# the cap with a `timed_out` event.
+# The mechanical half is the `guardrails` Hermes plugin
+# (modules/dev/hermes-plugins/guardrails): it default-denies every live-app
+# control tool call unless the current task carries an unexpired CAPTAIN grant
+# (the 2026-09-10 hole: an orchestrator card is not authorization), and it
+# injects the fleet default `max_runtime_seconds` into every `kanban_create`
+# that lacks one, so a card cannot be dispatched unbounded. The dispatcher then
+# hard-stops the worker at the cap with a `timed_out` event.
 #
 # Scope: wsl only. The alps full brain (`modules/dev/joy-brain.nix`) keeps its
 # own SOUL/skills and does not import this module.
@@ -49,6 +56,8 @@ let
     DESKTOP_LOCK_TTL_SECONDS = toString config.hermesGuardrails.desktopLockTtlSeconds;
     DESKTOP_LOCK_TTL_MINUTES = toString (builtins.div config.hermesGuardrails.desktopLockTtlSeconds 60);
     DESKTOP_LOCK_WAIT_SECONDS = toString config.hermesGuardrails.desktopLockWaitSeconds;
+    LIVE_APP_AUTH_DIR = config.hermesGuardrails.liveAppAuthDir;
+    LIVE_APP_GRANT_TTL_MINUTES = toString (builtins.div config.hermesGuardrails.liveAppGrantTtlSeconds 60);
   };
   replaceGuardrailVars = lib.replaceStrings
     (map (name: "@${name}@") (builtins.attrNames guardrailVars))
@@ -80,6 +89,8 @@ let
     desktop_lock_path: "${config.hermesGuardrails.desktopLockPath}"
     desktop_lock_ttl_seconds: ${toString config.hermesGuardrails.desktopLockTtlSeconds}
     desktop_lock_wait_seconds: ${toString config.hermesGuardrails.desktopLockWaitSeconds}
+    live_app_auth_dir: "${config.hermesGuardrails.liveAppAuthDir}"
+    live_app_grant_ttl_seconds: ${toString config.hermesGuardrails.liveAppGrantTtlSeconds}
   '';
 
   hermesGuardrailsCli = pkgs.writeShellApplication {
@@ -96,6 +107,17 @@ let
     text = lib.replaceStrings [ "@HERMES_GUARDRAILS_HOME@" ]
       [ "${config.home.homeDirectory}/.hermes" ]
       (builtins.readFile ./hermes-guardrails-bin/hermes-desktop-lock);
+  };
+
+  # The CAPTAIN-only grant/revoke CLI for live-app control. The `guardrails`
+  # plugin is default-deny; this is the one command that can lift that block,
+  # and it is deliberately a captain tool, never something an agent runs.
+  hermesLiveAppAuthorize = pkgs.writeShellApplication {
+    name = "hermes-live-app-authorize";
+    runtimeInputs = with pkgs; [ coreutils gnused gnugrep ];
+    text = lib.replaceStrings [ "@HERMES_GUARDRAILS_HOME@" ]
+      [ "${config.home.homeDirectory}/.hermes" ]
+      (builtins.readFile ./hermes-guardrails-bin/hermes-live-app-authorize);
   };
 in
 {
@@ -164,6 +186,30 @@ in
       '';
     };
 
+    liveAppAuthDir = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.home.homeDirectory}/.hermes/live-app-authorization";
+      description = ''
+        Directory holding the captain's per-task live-app grants. The
+        `guardrails` plugin resolves `<task>.grant` here and the
+        `hermes-live-app-authorize` captain CLI writes it here. Shared by every
+        profile because the plugin and the CLI both run as this unix user; the
+        grants are per-task, not per-profile.
+      '';
+    };
+
+    liveAppGrantTtlSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 7200;
+      example = 3600;
+      description = ''
+        Default lifetime of a captain-issued live-app grant, in seconds. A grant
+        is per-task and time-bounded so a forgotten authorization cannot cover
+        later work; the captain can still override per grant with
+        `hermes-live-app-authorize grant --minutes N`.
+      '';
+    };
+
     # Rendered artifacts consumed by modules/dev/hermes-home.nix and
     # modules/dev/hermes-skills.nix. Read-only: the module computes them from
     # the options above so the values in the prose cannot drift.
@@ -195,7 +241,7 @@ in
 
     # The helper CLIs are on PATH for the orchestrator, every expert worker, and
     # any interactive shell on this host.
-    home.packages = [ hermesGuardrailsCli hermesDesktopLock ];
+    home.packages = [ hermesGuardrailsCli hermesDesktopLock hermesLiveAppAuthorize ];
 
     # ~/.hermes/guardrails.yaml: the machine-readable tunable copy the CLIs read,
     # plus the lock's parent dir. Runs after hermesHomeInstantiate (creates
@@ -205,6 +251,7 @@ in
       lib.hm.dag.entryAfter [ "hermesHomeInstantiate" ] ''
         _home=${lib.escapeShellArg hermesHome}
         $DRY_RUN_CMD mkdir -p "$_home/run"
+        $DRY_RUN_CMD mkdir -p ${lib.escapeShellArg config.hermesGuardrails.liveAppAuthDir}
         $DRY_RUN_CMD ln -sfn ${lib.escapeShellArg "${guardrailsYaml}"} "$_home/guardrails.yaml"
       '';
   };

@@ -18,8 +18,15 @@
 #      and clear the cloned orchestrator memories
 #   6. write SOUL.md from the repo template, replacing the read-only clone
 #      (rename-over, so a Nix-store symlink source can never be clobbered)
-#   7. copy the pass-enforcement plugin in and enable it (plugins are NOT
-#      copied by --clone)
+#   7. copy the repo base plugins (pass-enforcement + guardrails) in and enable
+#      them (plugins are NOT copied by --clone)
+#
+# The same plugin sync is available on its own, for experts created before a
+# plugin existed (the 2026-09-10 incident left `photo-book-curator` without the
+# guardrails plugin, so its live-app gate was never loaded):
+#
+#   hermes-expert-new --sync-plugins <name>   # one existing expert
+#   hermes-expert-new --sync-plugins --all    # every existing expert
 #
 # Usage:
 #   hermes-expert-new <name> "<domain>" "<description>" "<domain scope>"
@@ -30,6 +37,9 @@
 #   --with-credentials  grant the pass-access / web-login credential skills
 #   --force             delete and recreate an existing profile (WIPES its
 #                       memory and learned skills)
+#   --sync-plugins      copy + enable the repo base plugins on an EXISTING
+#                       expert profile (takes a name, or --all); idempotent
+#   --all               with --sync-plugins: every expert profile
 #   -h, --help          show this help
 #
 # Run from the orchestrator's own shell (the active profile is the source of
@@ -40,6 +50,8 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: hermes-expert-new [--with-credentials] [--force] <name> "<domain>" "<description>" "<domain scope>"
+       hermes-expert-new --sync-plugins <name>
+       hermes-expert-new --sync-plugins --all
 
   <name>          kebab-case profile name: ^[a-z0-9][a-z0-9_-]{0,63}$
   <domain>        short domain phrase, e.g. "photo editing and publishing"
@@ -51,16 +63,66 @@ Usage: hermes-expert-new [--with-credentials] [--force] <name> "<domain>" "<desc
                       domains that log in to accounts)
   --force             delete and recreate an existing profile (WIPES memory
                       and learned skills)
+  --sync-plugins      copy + enable the repo base plugins (pass-enforcement,
+                      guardrails) on an EXISTING expert profile; pass a name
+                      or --all. Idempotent; the fix path for experts created
+                      before a plugin existed.
+  --all               with --sync-plugins: every expert profile under
+                      $HERMES_HOME/profiles
 EOF
+}
+
+# The repo base plugins every expert profile must carry. pass-enforcement is the
+# secret-dumping gate; guardrails is the live-app default-deny gate. Both are
+# Nix-managed in the DEFAULT home (hermes-plugins.nix) and must be copied in
+# because `hermes profile create --clone` does not copy plugins.
+plugin_names=(pass-enforcement guardrails)
+
+# sync_plugins_for <name> - idempotently copy + enable the base plugins on an
+# existing expert profile. `cp -rL` follows the default home's plugin symlink
+# into the nix store and materializes a real dir in the profile; the rm -rf
+# first keeps a re-run from nesting.
+sync_plugins_for() {
+  local name="$1" profile_dir plugin rc=0
+  if ! [[ "$name" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]]; then
+    echo "hermes-expert-new: invalid profile name '$name'" >&2
+    return 2
+  fi
+  profile_dir="$base/profiles/$name"
+  if [ ! -d "$profile_dir" ]; then
+    echo "hermes-expert-new: no profile '$name' at $profile_dir" >&2
+    return 1
+  fi
+  mkdir -p "$profile_dir/plugins"
+  for plugin in "${plugin_names[@]}"; do
+    if [ ! -d "$base/plugins/$plugin" ]; then
+      echo "hermes-expert-new: warning: $base/plugins/$plugin missing - skipped for '$name'" >&2
+      rc=1
+      continue
+    fi
+    rm -rf "$profile_dir/plugins/$plugin"
+    cp -rL "$base/plugins/$plugin" "$profile_dir/plugins/"
+    if hermes -p "$name" plugins enable "$plugin" --no-allow-tool-override; then
+      echo "hermes-expert-new: '$name' <- $plugin (copied and enabled)"
+    else
+      echo "hermes-expert-new: warning: copied $plugin but could not enable it for '$name'" >&2
+      rc=1
+    fi
+  done
+  return "$rc"
 }
 
 force=0
 with_credentials=0
+sync_plugins=0
+sync_all=0
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) force=1; shift ;;
     --with-credentials) with_credentials=1; shift ;;
+    --sync-plugins) sync_plugins=1; shift ;;
+    --all) sync_all=1; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; args+=("$@"); break ;;
     -) args+=("$1"); shift ;;
@@ -72,6 +134,54 @@ while [ "$#" -gt 0 ]; do
     *) args+=("$1"); shift ;;
   esac
 done
+
+# `hermes` is the CLI symlinked into ~/.local/bin by modules/dev/hermes-agent.nix.
+# Prepend it so any mode works from a non-interactive or service context.
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v hermes >/dev/null 2>&1; then
+  echo "hermes-expert-new: the 'hermes' CLI is not on PATH (expected $HOME/.local/bin/hermes)" >&2
+  exit 1
+fi
+
+# The active/default profile IS $HERMES_HOME; profiles live under its
+# profiles/ dir, and the shared base skills / expert template / plugins are the
+# default home's own. `--clone` copies from the active profile, so running this
+# from the orchestrator's shell is what makes the expert inherit the provider
+# config and the cua-driver MCP entry.
+base="${HERMES_HOME:-$HOME/.hermes}"
+
+# Plugin sync mode: fix an EXISTING expert that is missing a base plugin
+# (idempotent; re-running is always safe).
+if [ "$sync_plugins" -eq 1 ]; then
+  rc=0
+  if [ "$sync_all" -eq 1 ]; then
+    [ "${#args[@]}" -eq 0 ] || { echo "hermes-expert-new: --sync-plugins --all takes no profile name" >&2; usage >&2; exit 2; }
+    targets=()
+    for _d in "$base"/profiles/*/; do
+      [ -d "$_d" ] || continue
+      _n="$(basename "$_d")"
+      case "$_n" in .*) continue ;; esac
+      targets+=("$_n")
+    done
+    if [ "${#targets[@]}" -eq 0 ]; then
+      echo "hermes-expert-new: no expert profiles under $base/profiles" >&2
+      exit 0
+    fi
+    for _n in "${targets[@]}"; do
+      sync_plugins_for "$_n" || rc=1
+    done
+  else
+    [ "${#args[@]}" -eq 1 ] || { echo "hermes-expert-new: --sync-plugins expects exactly one profile name (or --all)" >&2; usage >&2; exit 2; }
+    sync_plugins_for "${args[0]}" || rc=1
+  fi
+  exit "$rc"
+fi
+
+if [ "$sync_all" -eq 1 ]; then
+  echo "hermes-expert-new: --all is only valid with --sync-plugins" >&2
+  usage >&2
+  exit 2
+fi
 
 if [ "${#args[@]}" -ne 4 ]; then
   echo "hermes-expert-new: expected 4 arguments, got ${#args[@]}" >&2
@@ -116,7 +226,6 @@ fi
 base="${HERMES_HOME:-$HOME/.hermes}"
 profile_dir="$base/profiles/$name"
 template="$base/templates/domain-expert-SOUL.md"
-plugin_src="$base/plugins/pass-enforcement"
 
 if [ ! -f "$template" ]; then
   echo "hermes-expert-new: expert SOUL template missing at $template" >&2
@@ -209,15 +318,19 @@ except BaseException:
     raise
 PY
 
-# 7. --clone does NOT copy plugins; the secret-safety hook must come along.
-if [ -d "$plugin_src" ]; then
-  mkdir -p "$profile_dir/plugins"
-  cp -rL "$plugin_src" "$profile_dir/plugins/"
-  hermes -p "$name" plugins enable pass-enforcement --no-allow-tool-override \
-    || echo "hermes-expert-new: warning: could not enable pass-enforcement for '$name'" >&2
-else
-  echo "hermes-expert-new: warning: $plugin_src missing - expert created without the pass-enforcement plugin" >&2
-fi
+# 7. --clone does NOT copy plugins; the secret-safety and live-app gates must
+#    come along. The base set is `plugin_names` (pass-enforcement, guardrails).
+mkdir -p "$profile_dir/plugins"
+for _p in "${plugin_names[@]}"; do
+  if [ -d "$base/plugins/$_p" ]; then
+    rm -rf "$profile_dir/plugins/$_p"
+    cp -rL "$base/plugins/$_p" "$profile_dir/plugins/"
+    hermes -p "$name" plugins enable "$_p" --no-allow-tool-override \
+      || echo "hermes-expert-new: warning: could not enable $_p for '$name'" >&2
+  else
+    echo "hermes-expert-new: warning: $base/plugins/$_p missing - expert created without the $_p plugin" >&2
+  fi
+done
 
 echo
 echo "hermes-expert-new: profile '$name' ready"
