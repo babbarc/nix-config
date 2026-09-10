@@ -432,9 +432,14 @@ The curated wsl instance does not run the private brain's persona. Its
 default-profile `SOUL.md` is tracked in this repo at `modules/dev/hermes-soul.md`
 and re-pinned to `~/.hermes/SOUL.md` on every activation. It is the captain's
 **orchestrator**: intake a task, classify its domain, delegate to an existing
-domain-expert profile through the kanban board (or create the expert when the
-domain is new), own the design/intake decisions, and **never execute the domain
-work itself**. It also expects experts to *build* capability - it can dispatch an
+domain-expert profile through the kanban board, own the design/intake decisions,
+and **never execute the domain work itself**. When no existing expert fits, it
+does not create one on its own initiative: it proposes one to three candidate
+profiles (name, domain, scope) - sized broadly for a whole capability domain,
+not a task-specific sliver - with a recommendation, waits for the captain's
+choice, and only then creates the agreed expert. An existing broad expert that
+plausibly covers a task is delegated to, never displaced by a narrow one. It also expects
+experts to *build* capability - it can dispatch an
 "author an AXI" card when a task needs a tool the fleet does not have. The full
 brain (alps) is unaffected - it keeps joy-brain's own `SOUL.md`.
 
@@ -447,7 +452,8 @@ contract lives in one reviewable file.
 ### Orchestrator + domain-expert fleet (wsl)
 
 The default profile is the orchestrator; each domain expert is a separate Hermes
-profile (`~/.hermes/profiles/<name>/`), created at runtime. Nothing about this
+profile (`~/.hermes/profiles/<name>/`), created at runtime once the captain has
+agreed on the proposed domain and scope. Nothing about this
 needs new orchestration code - it is built on Hermes primitives (captain
 decisions 2026-09-09, `data/hermes-orchestrator-design/report.md`):
 
