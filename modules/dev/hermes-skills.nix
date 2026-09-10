@@ -2,8 +2,11 @@
 let
   hermesHome = "${config.home.homeDirectory}/.hermes";
 
-  # Purpose-built, AXI-shaped skill set for the curated (wsl) Hermes instance -
-  # the firstmate-delegated browser + Windows-desktop + secure-`pass` operator.
+  # Purpose-built, AXI-shaped skill set for the curated (wsl) Hermes instance.
+  # The default profile is now the captain-facing ORCHESTRATOR, which never
+  # executes domain work; these skills are the shared base capability set every
+  # domain-expert profile sees through `skills.external_dirs` (see the expert
+  # provisioning path in modules/dev/hermes-expert-new.nix).
   # They are vendored in this repo, the same posture as
   # modules/dev/hermes-soul.md and modules/dev/hermes-bin/: repo-tracked,
   # restored on every rebuild, never pulled from a private external repo.

@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# hermes-expert-new - create a domain-expert Hermes profile deterministically.
+#
+# The orchestrator (default profile) runs this when a task lands in a domain
+# that has no expert yet. Every step here is a sharp edge of `hermes profile
+# create --clone` normalization (see data/hermes-orchestrator-design/report.md
+# sections 3.3 and 5.4), so it lives in one reviewable script rather than being
+# re-derived by a model each time:
+#
+#   1. clone the default profile (config, .env, SOUL, skills)
+#   2. drop the orchestrator toolset gate (`toolsets`/`platform_toolsets`) so
+#      the expert keeps the full default tool surface (browser, desktop, ...)
+#   3. point `skills.external_dirs` at the shared Nix-managed base skills in
+#      the DEFAULT home, so base-skill updates follow every rebuild
+#   4. reset the cloned local skills dir to empty (domain-only from here on)
+#      and clear the cloned orchestrator memories
+#   5. disable the credential skills unless the domain needs authentication
+#      (least privilege, captain decision #6)
+#   6. write SOUL.md from the repo template
+#   7. copy the pass-enforcement plugin in and enable it (plugins are NOT
+#      copied by --clone)
+#
+# Usage:
+#   hermes-expert-new <name> "<domain>" "<description>" "<domain scope>"
+#   hermes-expert-new --with-credentials <name> "<domain>" "<description>" -
+#       (scope read from stdin when the 4th argument is "-")
+#
+# Options:
+#   --with-credentials  grant the pass-access / web-login credential skills
+#   --force             delete and recreate an existing profile (WIPES its
+#                       memory and learned skills)
+#   -h, --help          show this help
+#
+# Run from the orchestrator's own shell (the active profile is the source of
+# the clone); HERMES_HOME selects the Hermes home, defaulting to ~/.hermes.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: hermes-expert-new [--with-credentials] [--force] <name> "<domain>" "<description>" "<domain scope>"
+
+  <name>          kebab-case profile name: ^[a-z0-9][a-z0-9_-]{0,63}$
+  <domain>        short domain phrase, e.g. "photo editing and publishing"
+  <description>   one- or two-sentence routing description
+  <domain scope>  what the expert covers, what to research first, first goals
+                  (use "-" to read the scope from stdin)
+
+  --with-credentials  grant the pass-access / web-login skills (only for
+                      domains that log in to accounts)
+  --force             delete and recreate an existing profile (WIPES memory
+                      and learned skills)
+EOF
+}
+
+force=0
+with_credentials=0
+args=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --force) force=1; shift ;;
+    --with-credentials) with_credentials=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; args+=("$@"); break ;;
+    -) args+=("$1"); shift ;;
+    -*)
+      echo "hermes-expert-new: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+
+if [ "${#args[@]}" -ne 4 ]; then
+  echo "hermes-expert-new: expected 4 arguments, got ${#args[@]}" >&2
+  usage >&2
+  exit 2
+fi
+
+name="${args[0]}"
+domain="${args[1]}"
+description="${args[2]}"
+scope="${args[3]}"
+
+if ! [[ "$name" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]]; then
+  echo "hermes-expert-new: invalid profile name '$name' (want ^[a-z0-9][a-z0-9_-]{0,63}$)" >&2
+  exit 2
+fi
+if [ -z "$domain" ] || [ -z "$description" ]; then
+  echo "hermes-expert-new: domain and description must not be empty" >&2
+  exit 2
+fi
+if [ "$scope" = "-" ]; then
+  scope="$(cat)"
+fi
+if [ -z "${scope//[[:space:]]/}" ]; then
+  echo "hermes-expert-new: domain scope must not be empty" >&2
+  exit 2
+fi
+
+# `hermes` is the CLI symlinked into ~/.local/bin by modules/dev/hermes-agent.nix.
+# Prepend it so the helper works from any non-interactive or service context.
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v hermes >/dev/null 2>&1; then
+  echo "hermes-expert-new: the 'hermes' CLI is not on PATH (expected $HOME/.local/bin/hermes)" >&2
+  exit 1
+fi
+
+# The active/default profile IS $HERMES_HOME; profiles live under its
+# profiles/ dir, and the shared base skills / expert template / plugin are the
+# default home's own. `--clone` copies from the active profile, so running this
+# from the orchestrator's shell is what makes the expert inherit the provider
+# config and the cua-driver MCP entry.
+base="${HERMES_HOME:-$HOME/.hermes}"
+profile_dir="$base/profiles/$name"
+template="$base/templates/domain-expert-SOUL.md"
+plugin_src="$base/plugins/pass-enforcement"
+
+if [ ! -f "$template" ]; then
+  echo "hermes-expert-new: expert SOUL template missing at $template" >&2
+  echo "  run 'home-manager switch' (or 'nixos-rebuild switch') to materialize it" >&2
+  exit 1
+fi
+
+if [ -e "$profile_dir" ]; then
+  if [ "$force" -ne 1 ]; then
+    echo "hermes-expert-new: profile '$name' already exists at $profile_dir" >&2
+    echo "  use --force to delete and recreate it (WIPES its memory and learned skills)" >&2
+    exit 1
+  fi
+  echo "hermes-expert-new: --force: deleting existing profile '$name'" >&2
+  hermes profile delete "$name" --yes
+fi
+
+echo "hermes-expert-new: creating profile '$name' (clone of the active profile)"
+hermes profile create "$name" --clone --no-alias --description "$description"
+
+# 2. The clone carries the orchestrator's kanban toolset gate. Remove it: the
+#    expert does not need the gate (the dispatcher force-adds the kanban
+#    toolset when HERMES_KANBAN_TASK is set) and it would otherwise restrict
+#    the expert to the orchestrator's tool surface.
+hermes -p "$name" config unset toolsets 2>/dev/null || true
+hermes -p "$name" config unset platform_toolsets 2>/dev/null || true
+
+# 3. Share the Nix-managed base skills from the DEFAULT home. external_dirs is
+#    the documented read-only shared source; a cloned copy would go stale when
+#    a base skill's store path changes.
+hermes -p "$name" config set skills.external_dirs "[\"$base/skills\"]"
+
+# 5. Least privilege on credentials: pass-access / web-login are granted only
+#    when the domain needs authenticated sessions. `skills.disabled` is the
+#    per-profile gate (agent/skill_utils.get_disabled_skill_names).
+if [ "$with_credentials" -eq 1 ]; then
+  hermes -p "$name" config unset skills.disabled 2>/dev/null || true
+else
+  # --force skips the cosmetic "unrecognized config key" notice: skills.disabled
+  # is read directly by the engine (agent/skill_utils.get_disabled_skill_names)
+  # and managed by `hermes skills config`, but is absent from the defaults
+  # table `hermes config set` validates against.
+  hermes -p "$name" config set --force skills.disabled '["pass-access", "web-login"]'
+fi
+
+# 4. Reset the local skills dir to domain-only and clear the cloned
+#    orchestrator memory. The whole point of external_dirs is that the local
+#    dir holds only what this expert learns.
+rm -rf "$profile_dir/skills"
+mkdir -p "$profile_dir/skills"
+rm -f "$profile_dir/memories/MEMORY.md" "$profile_dir/memories/USER.md"
+
+# 6. Stamp the expert SOUL from the repo template.
+python3 - "$template" "$profile_dir/SOUL.md" "$name" "$domain" "$scope" <<'PY'
+import pathlib
+import sys
+
+template, out, name, domain, scope = sys.argv[1:6]
+text = pathlib.Path(template).read_text(encoding="utf-8")
+for token, value in (
+    ("{{EXPERT_NAME}}", name),
+    ("{{DOMAIN}}", domain),
+    ("{{DOMAIN_SCOPE}}", scope.strip()),
+):
+    text = text.replace(token, value)
+if "{{" in text:
+    sys.exit(f"unsubstituted placeholder remains in {template}")
+pathlib.Path(out).write_text(text, encoding="utf-8")
+PY
+
+# 7. --clone does NOT copy plugins; the secret-safety hook must come along.
+if [ -d "$plugin_src" ]; then
+  mkdir -p "$profile_dir/plugins"
+  cp -rL "$plugin_src" "$profile_dir/plugins/"
+  hermes -p "$name" plugins enable pass-enforcement --no-allow-tool-override \
+    || echo "hermes-expert-new: warning: could not enable pass-enforcement for '$name'" >&2
+else
+  echo "hermes-expert-new: warning: $plugin_src missing - expert created without the pass-enforcement plugin" >&2
+fi
+
+echo
+echo "hermes-expert-new: profile '$name' ready"
+hermes profile list
+echo
+echo "hermes-expert-new: next - assign work to '$name' with kanban_create (assignee=\"$name\")"

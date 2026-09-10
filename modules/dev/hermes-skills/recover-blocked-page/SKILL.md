@@ -43,7 +43,8 @@ fake successes"), and:
 - carries provenance + snapshot date in the output, so a report can cite
   "as archived <date>" correctly;
 - on a `snapshot` hit, prints a `help[]` snapshot-age line - if the task needs
-  **current** values, say so to firstmate rather than passing stale data as live;
+  **current** values, say so to the dispatcher rather than passing stale data
+  as live;
 - on total failure prints `ALL_ROUTES_FAILED - tried wayback,
   archive.today(x4), api-pivot` with the route trace - never an empty file;
 - exit `0` recovered · `1` no route worked / operational error · `2` bad usage.
@@ -79,7 +80,7 @@ A 200 response is not success. Discard and continue the ladder if the body is:
 
 Always carry where the content came from and its date into the outcome report.
 If the task needs **current** values and all you have is a dated snapshot, say
-so to firstmate - don't present stale data as live.
+so to the dispatcher - don't present stale data as live.
 
 ## Related skills
 

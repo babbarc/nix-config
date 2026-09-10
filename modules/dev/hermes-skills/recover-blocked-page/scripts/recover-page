@@ -33,7 +33,7 @@ ladder (cheapest first, all inside recover_page.py - the canonical Hermes-core s
 help[]:
   the recovered body is written to a FILE (saved: <path>), never dumped to context
   a \`snapshot\` provenance prints its date - cite it WITH the date, and if the
-    task needs current values say so to firstmate, do not present stale data as live
+    task needs current values say so to the dispatcher, do not present stale data as live
   on total failure: \`ALL_ROUTES_FAILED\` - then try the site API / RSS / sitemap,
     then \`browse\` as a real session (see the SKILL.md fallback ladder)
 
@@ -89,5 +89,5 @@ print(
 if r.get("provenance") == "snapshot":
     print("help[]:")
     print(f"  this is a {date} snapshot, not the live page - cite it with the date")
-    print("  if the task needs current values, say so to firstmate")
+    print("  if the task needs current values, say so to the dispatcher")
 PY

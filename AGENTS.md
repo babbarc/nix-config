@@ -346,11 +346,14 @@ worth knowing here:
   which the wsl host does not import.
 - The curated instance runs a purpose-built, AXI-shaped skill set vendored in
   this repo at
-  `modules/dev/hermes-skills/<skill>/SKILL.md` (`browse`, `web-login`,
-  `pass-access`, `operate-desktop`, `recover-blocked-page`, `delegated-task`),
-  symlinked into `~/.hermes/skills/` by `modules/dev/hermes-skills.nix`
-  (imported only by `hosts/wsl/configuration.nix`, `entryAfter
-  hermesHomeInstantiate`).
+  `modules/dev/hermes-skills/<skill>/SKILL.md` (`axi-authoring`, `browse`,
+  `web-login`, `pass-access`, `operate-desktop`, `recover-blocked-page`,
+  `delegated-task`), symlinked into `~/.hermes/skills/` by
+  `modules/dev/hermes-skills.nix` (imported only by
+  `hosts/wsl/configuration.nix`, `entryAfter hermesHomeInstantiate`).
+  `axi-authoring` is the spec for building a missing capability as a reusable
+  AXI artifact (CLI / plugin / skill, the 10 AXI principles, artifact layout,
+  validation checklist); both SOULs point at it.
   `pass-axi` (the `pass-access` CLI) is packaged by `hermes-skills.nix`
   (`pkgs.writeShellApplication`, on PATH): metadata-only by construction (no
   show/get/cat), `inspect`/`otp` decrypt only via the `~/.hermes/bin` helpers +
@@ -390,7 +393,7 @@ worth knowing here:
   `~/.hermes/skills/` recursively (`os.walk` follows symlinks) and any
   `SKILL.md` dir registers as a `local` skill; `hermes skills trust` is only
   for repo-local `./.hermes/skills`. Verify after activation with `hermes
-  skills list` (source `local`, must show the six). Design report:
+  skills list` (source `local`, must show the seven). Design report:
   `firstmate/data/hermes-axi-skills-design/report.md`. The alps full brain is
   unaffected - `modules/dev/joy-brain.nix` still symlinks its whole tree.
 - On alps, joy-brain's `config.yaml` declares `mcp_servers.qmd` ->
@@ -399,14 +402,61 @@ worth knowing here:
   MCP servers, and `modules/dev/hermes-agent.nix` adds the one it uses
   (`cua-driver`) itself. See README "MCP servers".
 - `HERMES_HOME` is `home.sessionVariables`, so it reaches interactive shells
-  only (same gap firstmate.nix documents). Running `hermes gateway` as a
-  systemd user service (or firstmate dispatch) is deliberately out of scope for
-  this phase - launch it by hand for now.
+  only (same gap firstmate.nix documents). The gateway is now a declared unit
+  (`modules/dev/hermes-gateway.nix`, see the fleet section below); other
+  long-running `hermes` subcommands are still launched by hand.
 - `hermes mcp serve` runs Hermes as a stdio MCP server (no transport flags)
   that exposes its conversations to other agents. Nothing in this repo
   registers it now that the windows-mcp harness selector is gone; a caller
   that wants to delegate to Hermes over MCP wires up that entry itself
   (`<harness> mcp add hermes -- hermes mcp serve` or equivalent).
+
+## Hermes orchestrator + domain-expert fleet (wsl)
+
+The default profile is the captain-facing ORCHESTRATOR; each domain expert is a
+runtime-created Hermes profile. Authoritative design (read before changing any
+of this): `firstmate/data/hermes-orchestrator-design/report.md` (captain
+approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
+
+- **SOULs.** `modules/dev/hermes-soul.md` -> `~/.hermes/SOUL.md` is the
+  orchestrator (intake -> classify -> delegate via the board; never executes).
+  `modules/dev/hermes-expert-soul.md` ->
+  `~/.hermes/templates/domain-expert-SOUL.md` is the domain-expert template,
+  stamped per expert by `hermes-expert-new` (placeholders `{{EXPERT_NAME}}`,
+  `{{DOMAIN}}`, `{{DOMAIN_SCOPE}}`).
+- **Kanban enablement is a two-key gate.** `tools/kanban_tools.py`
+  `_profile_has_kanban_toolset()` gates the kanban tools on the TOP-LEVEL
+  `toolsets` key, while the actual CLI schema comes from
+  `platform_toolsets.cli`. `modules/dev/hermes-home.nix` deep-merges an
+  orchestrator override (yq `*`, arrays replaced) forcing
+  `toolsets: [kanban, terminal, file, skills, memory, web]`,
+  `platform_toolsets.cli` to the same list, `kanban.auto_decompose: false`, and
+  `kanban.max_in_progress_per_profile: 1`. Verified with the engine probe: gate
+  true, resolved CLI set = those six + the MCP-derived `cua-driver` toolset.
+- **Dispatcher lives in the gateway.** `modules/dev/hermes-gateway.nix` declares
+  `hermes-gateway.service` (`hermes gateway run --external-supervisor`, PATH
+  must include `/etc/profiles/per-user/<user>/bin` because home.packages land
+  there on this host, plus `~/.local/bin` for the CLI). systemd's INVOCATION_ID
+  (or `--external-supervisor`) satisfies the engine's supervised-gateway
+  conflict guard, so no `--force` is needed. Without the unit, ready cards never
+  spawn workers.
+- **`hermes-expert-new`** (`modules/dev/hermes-expert-new.nix` packaging
+  `modules/dev/hermes-expert-new`, runtimeInputs python3): the deterministic
+  profile provisioning flow - clone, drop `toolsets`/`platform_toolsets`, set
+  `skills.external_dirs` to the DEFAULT home's `skills/`, empty the cloned local
+  skills, clear cloned `memories/MEMORY.md`/`USER.md`, gate the credential
+  skills (`skills.disabled` is read by the engine but absent from the config
+  defaults table, hence `config set --force`), stamp SOUL from the template,
+  copy + enable `pass-enforcement` (`--clone` never copies plugins). Credential
+  skills are opt-in via `--with-credentials`. Refuses an existing profile
+  without `--force` (which deletes and recreates). Run it from the
+  orchestrator's shell: `--clone` copies the ACTIVE profile.
+- **Experts are self-contained; no shared AXI registry.** An expert's built
+  AXIs live in its own writable area (profile `skills/`, `plugins/`, or a
+  writable PATH dir such as `~/.local/bin` for a CLI) and are not shared across
+  experts. `axi-authoring` is the shared spec. Every expert sees the shared
+  base skills read-only via `skills.external_dirs`; a rebuilt host or deleted
+  profile loses runtime-created experts and their learned skills.
 
 ## Hermes pass-enforcement plugin (wsl host)
 

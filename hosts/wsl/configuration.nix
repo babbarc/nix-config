@@ -214,6 +214,14 @@ in
       # pass-access / web-login secret-hygiene design. See
       # modules/dev/hermes-plugins.nix.
       ../../modules/dev/hermes-plugins.nix
+      # hermes-expert-new (wsl-only): the deterministic domain-expert profile
+      # provisioning helper the orchestrator runs when a task lands in a new
+      # domain. See modules/dev/hermes-expert-new.nix.
+      ../../modules/dev/hermes-expert-new.nix
+      # Hermes gateway (wsl-only): the systemd --user unit that hosts the
+      # kanban dispatcher, so a fleet of expert profiles can actually drain
+      # the board. See modules/dev/hermes-gateway.nix.
+      ../../modules/dev/hermes-gateway.nix
     ];
   };
 }

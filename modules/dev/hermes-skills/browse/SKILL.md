@@ -104,7 +104,7 @@ Keep searches scoped to the task.
 
 ## Stop points
 
-Capture a screenshot and return to firstmate - do not improvise past:
+Capture a screenshot and return to the dispatcher - do not improvise past:
 
 - a CAPTCHA or a hard bot-detection wall,
 - a prompt for payment, a purchase confirmation, account deletion, or a

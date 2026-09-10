@@ -465,7 +465,7 @@ async def _cdp_session(connect, ws_url, selector, secret, submit):
                 [
                     "the field value did not stick (SPA re-render?)",
                     "See the SKILL.md timebox: 2 strategies x 3 tries, then "
-                    "stop and ask firstmate",
+                    "stop and ask the dispatcher",
                 ],
             )
 
