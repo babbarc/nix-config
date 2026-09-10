@@ -349,10 +349,17 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   (`pkgs.writeShellApplication`, on PATH): metadata-only by construction (no
   show/get/cat), `inspect`/`otp` decrypt only via the `~/.hermes/bin` helpers +
   the `pass-otp` extension, `doctor` is the GPG/env pass-fail matrix. It reads
-  the captain's real store at `~/.password-store`. The remaining wrapper
-  binaries (`hermes-web-login`, `recover-page`) and the proxy-wired
-  `chrome-devtools-axi` are follow-up PRs - those SKILL.md files carry the
-  interim path. Skill discovery needs NO trust step: Hermes scans
+  the captain's real store at `~/.password-store`. `hermes-web-login` (the
+  `web-login` CLI) is packaged the same way (`writeShellApplication` execing a
+  vendored python3+websockets script,
+  `modules/dev/hermes-skills/web-login/scripts/hermes-web-login`): the secret
+  is read inside the script via the `~/.hermes/bin/pass-to` helper and pushed
+  GPG -> pipe -> memory -> CDP `Runtime.evaluate` -> DOM (never an arg, stdout,
+  or tool-call record); CDP target auto-discovered from
+  `http://localhost:3333/json/version`. The remaining wrapper binary
+  (`recover-page`) and the proxy-wired `chrome-devtools-axi` are follow-up PRs
+  - those SKILL.md files carry the interim path. Skill discovery needs NO trust
+  step: Hermes scans
   `~/.hermes/skills/` recursively (`os.walk` follows symlinks) and any
   `SKILL.md` dir registers as a `local` skill; `hermes skills trust` is only
   for repo-local `./.hermes/skills`. Verify after activation with `hermes

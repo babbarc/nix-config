@@ -1,0 +1,572 @@
+#!/usr/bin/env python3
+"""hermes-web-login - zero-exposure credential / OTP entry into a web login form.
+
+The one sanctioned path for a secret to enter a web page. The secret value is
+read INSIDE this script from `pass` (addressed only by its store path) and flows
+
+    GPG -> pipe -> this script's memory -> CDP Runtime.evaluate -> the DOM
+
+It is never a shell argument, never printed, never written to stdout, never in a
+tool-call record. Structured results carry a length, never the value.
+
+Usage:
+    hermes-web-login <pass-path> [--selector <css>] [--submit]
+    hermes-web-login otp <pass-path> [--selector <css>] [--submit]
+    hermes-web-login --help
+
+- <pass-path>            fills the first line of the pass entry into the page.
+                         Default selector: input[type=password].
+- otp <pass-path>        run `pass otp <pass-path>` and fill the one-time-code
+                         field instead. Default selector targets a numeric /
+                         OTP input. TOTP is a 30s window - run this right
+                         before submit.
+- --selector <css>       target a specific field (get the real ref from
+                         `browse snapshot`). Works in both modes.
+- --submit               after filling, call form.requestSubmit() and report
+                         the resulting URL.
+
+CDP target: auto-discovered from http://localhost:3333/json/version (the
+browser-proxy-windows.service contract). Attaches to the best page target,
+preferring a login / signin / auth URL.
+
+Results (no secret):
+    ok: {selector: "...", filled_len: 14, target: "accounts.google.com"}
+    error: PASS_ENTRY_NOT_FOUND | SELECTOR_NOT_FOUND | NO_PAGE_TARGET
+         | CDP_UNREACHABLE | PASS_HELPER_MISSING | PASS_READ_FAILED
+         | OTP_UNAVAILABLE | FILL_NOT_VERIFIED
+
+Exit codes: 0 filled-and-verified, 1 operational error, 2 bad usage.
+Idempotent - re-running re-fills the same value.
+
+Hardened descendant of joy-brain's
+skills/security/credential-pre-flight/scripts/cdp-pass-inject.py. Vendored in
+nix-config at modules/dev/hermes-skills/web-login/scripts/hermes-web-login and
+packaged onto PATH by modules/dev/hermes-skills.nix.
+"""
+
+import asyncio
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+from urllib.parse import urlparse
+
+CDP_VERSION_URL = "http://localhost:3333/json/version"
+
+PW_DEFAULT_SELECTOR = "input[type=password]"
+# First match wins (querySelector). Covers the common one-time-code shapes; pass
+# --selector for anything unusual.
+OTP_DEFAULT_SELECTOR = (
+    'input[autocomplete="one-time-code"], '
+    'input[name*="otp" i], input[id*="otp" i], '
+    'input[name*="totp" i], input[name*="code" i], '
+    'input[inputmode="numeric"]'
+)
+
+# Substrings that mark a page target as a login page (checked in order).
+LOGIN_URL_HINTS = (
+    "login", "signin", "sign_in", "sign-in", "auth", "sso",
+    "oauth", "account", "session",
+)
+
+
+class UsageError(Exception):
+    """Bad invocation -> exit 2."""
+
+
+class OpError(Exception):
+    """Operational failure -> exit 1. `code` is a stable token, no secret."""
+
+    def __init__(self, code, help_lines=None):
+        super().__init__(code)
+        self.code = code
+        self.help_lines = list(help_lines or [])
+
+
+# --------------------------------------------------------------------------- #
+# pass access - the secret is read here and nowhere else
+# --------------------------------------------------------------------------- #
+
+def _password_store_dir():
+    return os.environ.get("PASSWORD_STORE_DIR") or os.path.expanduser(
+        "~/.password-store"
+    )
+
+
+def _pass_to_path():
+    base = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+    return os.path.join(base, "bin", "pass-to")
+
+
+def pass_entry_exists(pass_path):
+    """True if <store>/<pass-path>.gpg is a file. No decryption."""
+    name = pass_path.lstrip("/")
+    if name.endswith(".gpg"):
+        name = name[:-4]
+    return os.path.isfile(os.path.join(_password_store_dir(), name + ".gpg"))
+
+
+def read_secret_via_pass_to(pass_path):
+    """First line of the entry, via ~/.hermes/bin/pass-to. Stays in memory."""
+    helper = _pass_to_path()
+    if not os.access(helper, os.X_OK):
+        raise OpError(
+            "PASS_HELPER_MISSING",
+            [
+                f"{helper} is not present or not executable",
+                "The ~/.hermes/bin helpers are materialized by home-manager "
+                "activation (modules/dev/joy-brain.nix)",
+            ],
+        )
+    proc = subprocess.run(
+        [helper, pass_path, "--", "head", "-n", "1"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise OpError(
+            "PASS_READ_FAILED",
+            [
+                f'Could not decrypt "{pass_path}"',
+                "Run `pass-axi doctor` to check GPG / gpg-agent / secret key",
+            ],
+        )
+    secret = proc.stdout.rstrip("\r\n")
+    if not secret:
+        raise OpError(
+            "PASS_READ_FAILED",
+            [f'"{pass_path}" decrypted to an empty first line'],
+        )
+    return secret
+
+
+def read_otp(pass_path):
+    """Current TOTP code via `pass otp`. Digits only, stays in memory."""
+    proc = subprocess.run(
+        ["pass", "otp", pass_path], capture_output=True, text=True
+    )
+    if proc.returncode != 0:
+        raise OpError(
+            "OTP_UNAVAILABLE",
+            [
+                f'"{pass_path}" has no otpauth:// line, or GPG failed',
+                f"Run `pass-axi inspect {pass_path}` to check for an otpauth field",
+            ],
+        )
+    code = "".join(ch for ch in proc.stdout if ch.isdigit())
+    if not code:
+        raise OpError(
+            "OTP_UNAVAILABLE", [f'no code produced for "{pass_path}"']
+        )
+    return code
+
+
+# --------------------------------------------------------------------------- #
+# CDP
+# --------------------------------------------------------------------------- #
+
+def discover_cdp_ws():
+    # The browser-proxy lazily launches Windows Chrome on first hit, so the
+    # initial /json/version can take several seconds - retry before giving up.
+    last_exc = None
+    data = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(CDP_VERSION_URL, timeout=15) as resp:
+                data = json.loads(resp.read())
+            break
+        except Exception as exc:  # noqa: BLE001 - report class, never the trace
+            last_exc = exc
+            if attempt < 2:
+                import time
+
+                time.sleep(2)
+    if data is None:
+        raise OpError(
+            "CDP_UNREACHABLE",
+            [
+                f"Could not reach the CDP proxy at {CDP_VERSION_URL} "
+                f"({last_exc.__class__.__name__})",
+                "Check `systemctl --user status browser-proxy-windows` and "
+                "that Windows Chrome is up",
+            ],
+        )
+    ws_url = data.get("webSocketDebuggerUrl")
+    if not ws_url:
+        raise OpError(
+            "CDP_UNREACHABLE",
+            ["/json/version returned no webSocketDebuggerUrl"],
+        )
+    return ws_url
+
+
+def pick_target(target_infos):
+    pages = [
+        t
+        for t in target_infos
+        if t.get("type") == "page"
+        and str(t.get("url", "")).startswith("http")
+    ]
+    if not pages:
+        raise OpError(
+            "NO_PAGE_TARGET",
+            [
+                "No attached page has an http(s) URL",
+                "Open the login page with `browse` first, then re-run",
+            ],
+        )
+    for hint in LOGIN_URL_HINTS:
+        for t in pages:
+            if hint in t["url"].lower():
+                return t
+    return pages[0]
+
+
+def _fill_expr(selector, secret):
+    sel = json.dumps(selector)
+    val = json.dumps(secret)
+    return (
+        "(function(){"
+        f"var el=document.querySelector({sel});"
+        "if(!el){return 'SELECTOR_NOT_FOUND';}"
+        "var proto=el instanceof window.HTMLTextAreaElement"
+        "?window.HTMLTextAreaElement.prototype"
+        ":window.HTMLInputElement.prototype;"
+        "var setter=Object.getOwnPropertyDescriptor(proto,'value').set;"
+        f"setter.call(el,{val});"
+        "el.dispatchEvent(new Event('input',{bubbles:true}));"
+        "el.dispatchEvent(new Event('change',{bubbles:true}));"
+        "el.dispatchEvent(new Event('blur',{bubbles:true}));"
+        "return 'OK:'+el.value.length;"
+        "})()"
+    )
+
+
+def _verify_expr(selector):
+    sel = json.dumps(selector)
+    return (
+        "(function(){"
+        f"var el=document.querySelector({sel});"
+        "if(!el){return 'SELECTOR_NOT_FOUND';}"
+        "return 'OK:'+el.value.length;"
+        "})()"
+    )
+
+
+def _submit_expr(selector):
+    sel = json.dumps(selector)
+    return (
+        "(function(){"
+        f"var el=document.querySelector({sel});"
+        "if(!el){return 'SELECTOR_NOT_FOUND';}"
+        "var f=el.form;"
+        "if(!f){return 'NO_FORM';}"
+        "if(f.requestSubmit){f.requestSubmit();}else{f.submit();}"
+        "return 'SUBMITTED';"
+        "})()"
+    )
+
+
+async def cdp_fill(selector, secret, submit):
+    import websockets  # provided by the packaged python3 closure
+
+    try:
+        connect = websockets.connect
+    except AttributeError:  # pragma: no cover - very old websockets
+        from websockets.asyncio.client import connect
+
+    ws_url = discover_cdp_ws()
+
+    # The proxy path to Windows Chrome can be slow/flaky on the first hits;
+    # retry the whole (idempotent) session before reporting CDP_UNREACHABLE.
+    last_exc = None
+    for attempt in range(3):
+        try:
+            return await _cdp_session(
+                connect, ws_url, selector, secret, submit
+            )
+        except OpError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - retry, then report the class
+            last_exc = exc
+            if attempt < 2:
+                await asyncio.sleep(2)
+    raise OpError(
+        "CDP_UNREACHABLE",
+        [
+            f"CDP websocket failed ({last_exc.__class__.__name__})",
+            "Check `systemctl --user status browser-proxy-windows` and "
+            "that Windows Chrome is up",
+        ],
+    )
+
+
+async def _cdp_session(connect, ws_url, selector, secret, submit):
+    pending = {}
+    attached_session = [None]
+
+    async with connect(ws_url, max_size=None, open_timeout=20) as ws:
+        next_id = [0]
+        loop = asyncio.get_running_loop()
+
+        async def send(method, params=None, session_id=None):
+            next_id[0] += 1
+            mid = next_id[0]
+            msg = {"id": mid, "method": method, "params": params or {}}
+            if session_id:
+                msg["sessionId"] = session_id
+            await ws.send(json.dumps(msg))
+            return mid
+
+        async def response(mid, timeout=10):
+            if mid in pending:
+                return pending.pop(mid)
+            deadline = loop.time() + timeout
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise OpError(
+                        "CDP_UNREACHABLE",
+                        [f"timed out waiting for CDP response ({mid})"],
+                    )
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    raise OpError(
+                        "CDP_UNREACHABLE",
+                        [f"timed out waiting for CDP response ({mid})"],
+                    )
+                msg = json.loads(raw)
+                if msg.get("method") == "Target.attachedToTarget":
+                    attached_session[0] = msg.get("params", {}).get("sessionId")
+                mid_in = msg.get("id")
+                if mid_in is None:
+                    continue
+                if mid_in == mid:
+                    return msg
+                pending[mid_in] = msg
+
+        def eval_value(msg):
+            if "error" in msg:
+                raise OpError(
+                    "CDP_UNREACHABLE",
+                    [f"CDP error: {msg['error'].get('message', 'unknown')}"],
+                )
+            return (
+                msg.get("result", {})
+                .get("result", {})
+                .get("value")
+            )
+
+        # 1. targets
+        resp = await response(await send("Target.getTargets"))
+        target = pick_target(resp["result"]["targetInfos"])
+        target_host = urlparse(target["url"]).netloc or target["url"]
+
+        # 2. attach (sessionId may arrive as an event or on the response)
+        attach_id = await send(
+            "Target.attachToTarget",
+            {"targetId": target["targetId"], "flatten": True},
+        )
+        attach_resp = await response(attach_id)
+        session_id = attached_session[0] or attach_resp.get("result", {}).get(
+            "sessionId"
+        )
+        if not session_id:
+            raise OpError(
+                "NO_PAGE_TARGET",
+                ["could not attach a CDP session to the page target"],
+            )
+
+        # 3. fill
+        fill_id = await send(
+            "Runtime.evaluate",
+            {"expression": _fill_expr(selector, secret), "returnByValue": True},
+            session_id,
+        )
+        fill_val = eval_value(await response(fill_id))
+        if fill_val == "SELECTOR_NOT_FOUND":
+            raise OpError(
+                "SELECTOR_NOT_FOUND",
+                [
+                    f'no element matched {selector!r}',
+                    'Run `browse snapshot` and pass the real field ref as '
+                    '--selector "#id"',
+                ],
+            )
+
+        # 4. verify after the event loop settles
+        verify_id = await send(
+            "Runtime.evaluate",
+            {"expression": _verify_expr(selector), "returnByValue": True},
+            session_id,
+        )
+        verify_val = eval_value(await response(verify_id))
+        filled_len = 0
+        if isinstance(verify_val, str) and verify_val.startswith("OK:"):
+            try:
+                filled_len = int(verify_val[3:])
+            except ValueError:
+                filled_len = 0
+        if filled_len <= 0:
+            raise OpError(
+                "FILL_NOT_VERIFIED",
+                [
+                    "the field value did not stick (SPA re-render?)",
+                    "See the SKILL.md timebox: 2 strategies x 3 tries, then "
+                    "stop and ask firstmate",
+                ],
+            )
+
+        out = {
+            "selector": selector,
+            "filled_len": filled_len,
+            "target": target_host,
+        }
+
+        # 5. optional submit
+        if submit:
+            submit_id = await send(
+                "Runtime.evaluate",
+                {"expression": _submit_expr(selector), "returnByValue": True},
+                session_id,
+            )
+            submit_val = eval_value(await response(submit_id))
+            out["submitted"] = submit_val == "SUBMITTED"
+            await asyncio.sleep(1.0)
+            try:
+                href_id = await send(
+                    "Runtime.evaluate",
+                    {"expression": "location.href", "returnByValue": True},
+                    session_id,
+                )
+                out["url"] = eval_value(await response(href_id, timeout=5))
+            except OpError:
+                out["url"] = "(navigation in progress)"
+
+        return out
+
+
+# --------------------------------------------------------------------------- #
+# output
+# --------------------------------------------------------------------------- #
+
+def _fmt_obj(obj):
+    parts = []
+    for key, val in obj.items():
+        if isinstance(val, bool):
+            parts.append(f"{key}: {'true' if val else 'false'}")
+        elif isinstance(val, int):
+            parts.append(f"{key}: {val}")
+        else:
+            parts.append(f'{key}: "{val}"')
+    return "{" + ", ".join(parts) + "}"
+
+
+def print_ok(obj):
+    print(f"ok: {_fmt_obj(obj)}")
+
+
+def print_error(code, help_lines):
+    print(f"error: {code}", file=sys.stderr)
+    if help_lines:
+        print("help[]:", file=sys.stderr)
+        for line in help_lines:
+            print(f"  {line}", file=sys.stderr)
+
+
+HELP = __doc__
+
+
+# --------------------------------------------------------------------------- #
+# arg parsing + dispatch
+# --------------------------------------------------------------------------- #
+
+def parse_args(argv):
+    """Return (mode, pass_path, selector, submit). Raises UsageError -> exit 2."""
+    args = list(argv)
+    if not args:
+        raise UsageError("missing <pass-path>")
+    if args[0] in ("-h", "--help", "help"):
+        return ("help", None, None, False)
+
+    mode = "fill"
+    if args[0] == "otp":
+        mode = "otp"
+        args = args[1:]
+
+    pass_path = None
+    selector = None
+    submit = False
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--selector":
+            if i + 1 >= len(args):
+                raise UsageError("--selector requires a value")
+            selector = args[i + 1]
+            i += 2
+            continue
+        if arg == "--submit":
+            submit = True
+            i += 1
+            continue
+        if arg.startswith("-"):
+            raise UsageError(f"unknown option: {arg}")
+        if pass_path is not None:
+            raise UsageError(f"unexpected argument: {arg}")
+        pass_path = arg
+        i += 1
+
+    if pass_path is None:
+        raise UsageError("missing <pass-path>")
+    return (mode, pass_path, selector, submit)
+
+
+def run(mode, pass_path, selector, submit):
+    if not pass_entry_exists(pass_path):
+        raise OpError(
+            "PASS_ENTRY_NOT_FOUND",
+            [
+                f'no pass entry "{pass_path}" under {_password_store_dir()}',
+                "Run `pass-axi find <term>` to search entry names",
+            ],
+        )
+
+    if mode == "otp":
+        secret = read_otp(pass_path)
+        sel = selector or OTP_DEFAULT_SELECTOR
+    else:
+        secret = read_secret_via_pass_to(pass_path)
+        sel = selector or PW_DEFAULT_SELECTOR
+
+    try:
+        result = asyncio.run(cdp_fill(sel, secret, submit))
+    finally:
+        secret = None  # drop the reference promptly
+
+    print_ok(result)
+    return 0
+
+
+def main(argv):
+    try:
+        mode, pass_path, selector, submit = parse_args(argv[1:])
+    except UsageError as exc:
+        print_error("BAD_USAGE", [str(exc), "Run `hermes-web-login --help`"])
+        return 2
+
+    if mode == "help":
+        print(HELP)
+        return 0
+
+    try:
+        return run(mode, pass_path, selector, submit)
+    except OpError as exc:
+        print_error(exc.code, exc.help_lines)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

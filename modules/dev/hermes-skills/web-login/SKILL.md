@@ -41,7 +41,7 @@ here.
 
 ```
 hermes-web-login <pass-path> [--selector <css>] [--submit]
-hermes-web-login otp <pass-path>
+hermes-web-login otp <pass-path> [--selector <css>] [--submit]
 hermes-web-login --help
 ```
 
@@ -49,18 +49,26 @@ hermes-web-login --help
   helper), auto-discovers the CDP socket from
   `http://localhost:3333/json/version`, attaches to the best page target
   (prefers a login/signin/auth URL), and sets the field value with an
-  SPA-safe native setter plus `input`/`change`/`blur` events.
+  SPA-safe native setter plus `input`/`change`/`blur` events. Default
+  selector: `input[type=password]`; pass `--selector` with the real ref
+  from `browse snapshot` for anything else.
 - `otp <pass-path>` runs `pass otp <pass-path>` the same way and fills the OTP
-  field. TOTP is a 30s window - generate it right before submit.
+  field (default selector targets a one-time-code / numeric input). TOTP is a
+  30s window - generate it right before submit.
+- `--submit` calls `form.requestSubmit()` after the fill and reports the
+  resulting URL.
 - Structured result, no secret: `ok: {selector, filled_len, target}` where
   `filled_len` is the length only. Errors: `PASS_ENTRY_NOT_FOUND`,
-  `SELECTOR_NOT_FOUND`, `NO_PAGE_TARGET`, `CDP_UNREACHABLE`. Exit 0
-  filled-and-verified, 1 operational error, 2 bad usage. Idempotent.
+  `SELECTOR_NOT_FOUND`, `NO_PAGE_TARGET`, `CDP_UNREACHABLE` (plus
+  `PASS_HELPER_MISSING`, `PASS_READ_FAILED`, `OTP_UNAVAILABLE`,
+  `FILL_NOT_VERIFIED`). Exit 0 filled-and-verified, 1 operational error, 2 bad
+  usage. Idempotent - re-running re-fills the same value.
 
-> **Status:** `hermes-web-login` ships in a follow-up change. Until it lands
-> there is **no** sanctioned way to type a secret into a page from this
-> instance. If a task needs a login before then, stop and tell firstmate -
-> do **not** fall back to typing the secret through a browser or desktop tool.
+`hermes-web-login` is packaged onto PATH by `modules/dev/hermes-skills.nix`
+(nix profile, shell-independent) - it is the one sanctioned path for a secret
+to enter a web page. If it cannot fill the field within the timebox below,
+stop and tell firstmate - do **not** fall back to typing the secret through a
+browser or desktop tool.
 
 ## Procedure
 
