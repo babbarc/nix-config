@@ -36,9 +36,8 @@ in
 
   config = lib.mkMerge [ {
     # Hermes Agent engine, imported by two hosts:
-    #   - wsl (hosts/wsl/configuration.nix, alongside modules/dev/joy-brain.nix)
-    #   - alps hermes (hosts/hermes/home.nix, alongside modules/dev/joy-brain.nix
-    #     with joyBrain.full = true)
+    #   - wsl (hosts/wsl/configuration.nix, alongside modules/dev/hermes-home.nix)
+    #   - alps hermes (hosts/hermes/home.nix, alongside modules/dev/joy-brain.nix)
     # Never the shared modules/dev list, which the laptop/server hosts also
     # import.
     #
@@ -59,15 +58,15 @@ in
     # (firstmate.nix, herdr.nix, agent-cli-tools.nix), so a pinned uv sync is
     # the consistent, simpler choice here.
     #
-    # HERMES_HOME is ~/.hermes, the joy-brain instantiation materialized by
-    # modules/dev/joy-brain.nix (curated on wsl, full on alps) - keep those two
-    # paths in sync.
+    # HERMES_HOME is ~/.hermes: on wsl the curated, self-contained home
+    # materialized by modules/dev/hermes-home.nix; on alps the full joy-brain
+    # materialized by modules/dev/joy-brain.nix - keep those in sync.
     home.packages = with pkgs; [
       uv      # drives the pinned install below (and later `hermes update`)
       ffmpeg  # runtime dep of several hermes tools/skills
     ] ++ lib.optionals config.hermesAgent.standaloneDeps [
       # Runtime deps the shared modules/dev list normally supplies
-      # (cli-tools.nix / dev-toolchains.nix), plus the joy-brain scripts'
+      # (cli-tools.nix / dev-toolchains.nix), plus the full brain's script
       # needs - the direct-install mirror of the joy-stack Containerfile.hermes
       # apt extras (git-lfs, sqlite3, netcat, pass+otp, poppler-utils,
       # python3-pil/imagemagick, Node LTS).
@@ -151,11 +150,12 @@ in
     #   3. pin `web.search_backend: ddgs` so `web_search` selects it directly
     #      instead of laddering toward a managed/paid backend.
     #
-    # Runs after joyBrainInstantiate so the seeded ~/.hermes/config.yaml is the
-    # file that gets the plugin + backend entries. Warn-not-die, guarded on the
-    # hermes CLI and the venv being present - same posture as hermesCuaDriver.
+    # Runs after hermesHomeInstantiate (wsl) / joyBrainInstantiate (alps) so the
+    # seeded ~/.hermes/config.yaml is the file that gets the plugin + backend
+    # entries. Warn-not-die, guarded on the hermes CLI and the venv being
+    # present - same posture as hermesCuaDriver.
     home.activation.hermesWebSearch =
-      lib.hm.dag.entryAfter [ "joyBrainInstantiate" "hermesAgentInstall" ] ''
+      lib.hm.dag.entryAfter [ "hermesHomeInstantiate" "joyBrainInstantiate" "hermesAgentInstall" ] ''
         PATH="$HOME/.local/bin:$PATH"
         export HERMES_HOME=${lib.escapeShellArg hermesHome}
         _uv=${pkgs.uv}/bin/uv
@@ -184,11 +184,11 @@ in
     # installed on the Windows side by cua-driver-bootstrap.ps1 (per-user, no
     # admin); Hermes reaches it over WSL interop by spawning powershell.exe.
     # GUI/desktop only - no shell/filesystem/registry (reachable directly from
-    # WSL when needed). Runs after joyBrainInstantiate so the seeded
+    # WSL when needed). Runs after hermesHomeInstantiate so the seeded
     # ~/.hermes/config.yaml is the file that gets the new mcp_servers entry.
     # Idempotent (skip when already present) and warn-not-die, matching the
     # repo's other activation steps.
-    home.activation.hermesCuaDriver = lib.hm.dag.entryAfter [ "joyBrainInstantiate" ] ''
+    home.activation.hermesCuaDriver = lib.hm.dag.entryAfter [ "hermesHomeInstantiate" ] ''
       PATH="$HOME/.local/bin:$PATH"
       export HERMES_HOME=${lib.escapeShellArg hermesHome}
       _cfg="${hermesHome}/config.yaml"

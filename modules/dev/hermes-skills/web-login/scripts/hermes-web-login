@@ -45,8 +45,8 @@ Results (no secret):
 Exit codes: 0 filled-and-verified, 1 operational error, 2 bad usage.
 Idempotent - re-running re-fills the same value.
 
-Hardened descendant of joy-brain's
-skills/security/credential-pre-flight/scripts/cdp-pass-inject.py. Vendored in
+Hardened descendant of an earlier credential-injection helper
+(cdp-pass-inject.py). Vendored in
 nix-config at modules/dev/hermes-skills/web-login/scripts/hermes-web-login and
 packaged onto PATH by modules/dev/hermes-skills.nix.
 """
@@ -123,7 +123,7 @@ def read_secret_via_pass_to(pass_path):
             [
                 f"{helper} is not present or not executable",
                 "The ~/.hermes/bin helpers are materialized by home-manager "
-                "activation (modules/dev/joy-brain.nix)",
+                "activation (modules/dev/hermes-home.nix)",
             ],
         )
     proc = subprocess.run(

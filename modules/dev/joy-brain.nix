@@ -9,24 +9,6 @@ let
   # which keeps a fresh host working but is NOT the intended steady state.
   joyBrainRev = "8c95745461bf7b01dbcc17659853bad62f35bd88";
 
-  # Curated skill subset from joy-brain for the wsl instance.
-  #
-  # CUTOVER (captain decision, 2026-09-09): the browser and `security` skills
-  # this instance used to borrow from joy-brain are now purpose-built,
-  # AXI-shaped, and vendored in this repo under modules/dev/hermes-skills/
-  # (wired by modules/dev/hermes-skills.nix). This list is therefore empty -
-  # the curated instance materializes NO joy-brain skills. It stays as the
-  # single, documented place to re-add a joy-brain skill if a future task on
-  # this instance genuinely needs one. Paths are relative to <clone>/skills/;
-  # a bare name is a flat skill dir, a/b is a skill inside a category dir.
-  includedSkills = [ ];
-
-  # Default-profile SOUL.md for the curated (wsl) instance: the
-  # firstmate-delegated internet-browsing + Windows-desktop specialist role.
-  # Tracked here so a rebuild always restores it; the full brain (alps) keeps
-  # joy-brain's own SOUL.md instead.
-  defaultSoul = ./hermes-soul.md;
-
   # Deep-merged into ~/.hermes/config.yaml at activation. `*` is yq's merge
   # operator (right-hand side wins), so only browser.cdp_url is forced and any
   # other keys - joy-brain's config plus Hermes's own runtime edits - survive.
@@ -36,40 +18,33 @@ let
   '';
 in
 {
-  options.joyBrain = {
-    # wsl instantiates only the curated browser+workflow skill subset (see
-    # includedSkills); alps instantiates the FULL joy-brain (all skills,
-    # profiles/, full memory/, plugins incl. approval-gates) - the production
-    # brain. Both share the same clone URL, pin and browser.cdp_url wiring, so
-    # the only difference is the skills materialization below.
-    full = lib.mkEnableOption "instantiate the full joy-brain skill tree instead of the curated browser subset";
-  };
-
+  # Instantiates the captain's private joy-brain assistant as the Hermes home
+  # (~/.hermes) WITHOUT vendoring any of its private content into this repo.
+  # Same posture as modules/dev/firstmate.nix: the private git tree is cloned
+  # at activation from the gitea SSH URL and never committed here. This repo
+  # only carries the clone URL, the pin, and the browser.cdp_url wiring.
+  #
+  # This is the FULL brain (alps `hosts/hermes`). The wsl host's curated,
+  # self-contained Hermes home is a separate, repo-owned module
+  # (modules/dev/hermes-home.nix) and does NOT import this one.
+  #
+  # Layout:
+  #   ~/.local/share/joy-brain   the pinned clone (source of truth, never
+  #                              edited by this module)
+  #   ~/.hermes                  the materialized HERMES_HOME: config.yaml is
+  #                              a writable per-user file (seeded on first
+  #                              activation - from the clone's own config.yaml
+  #                              when it carries one, else from the
+  #                              browser.cdp_url base - then deep-merged with
+  #                              browser.cdp_url on every activation);
+  #                              identity/state/plugins/skills are symlinks
+  #                              back into the clone
+  #
+  # Runtime state Hermes writes under ~/.hermes (sessions/, logs/, cron/,
+  # memories/) lands as untracked files in the clone via the symlinks - the
+  # same model the production container uses (HERMES_HOME == the joy-brain
+  # working tree), so nothing here needs to invent a new state layout.
   config = {
-    # Instantiates the captain's private joy-brain assistant as the Hermes home
-    # (~/.hermes) WITHOUT vendoring any of its private content into this repo.
-    # Same posture as modules/dev/firstmate.nix: the private git tree is cloned
-    # at activation from the gitea SSH URL and never committed here. This repo
-    # only carries the clone URL, the pin, the skill materialization mode and
-    # the browser.cdp_url wiring.
-    #
-    # Layout:
-    #   ~/.local/share/joy-brain   the pinned clone (source of truth, never
-    #                              edited by this module)
-    #   ~/.hermes                  the materialized HERMES_HOME: config.yaml is
-    #                              a writable per-user file (seeded on first
-    #                              activation - from the clone's own config.yaml
-    #                              when it carries one, else from the
-    #                              browser.cdp_url base - then deep-merged with
-    #                              browser.cdp_url on every activation);
-    #                              identity/state/plugins/skills are symlinks
-    #                              back into the clone
-    #
-    # Runtime state Hermes writes under ~/.hermes (sessions/, logs/, cron/,
-    # memories/) lands as untracked files in the clone via the symlinks - the
-    # same model the production container uses (HERMES_HOME == the joy-brain
-    # working tree), so nothing here needs to invent a new state layout.
-
     home.activation.joyBrainClone = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       _git=${pkgs.git}/bin/git
       if [ ! -d "${joyBrainDir}/.git" ]; then
@@ -122,32 +97,19 @@ ${
           && $DRY_RUN_CMD mv "$_home/config.yaml.tmp" "$_home/config.yaml"
       fi
 
-      # Context file: read-only symlink into the clone (both instances).
+      # Context file: read-only symlink into the clone.
       if [ -e "$_src/.hermes.md" ] && [ ! -e "$_home/.hermes.md" ]; then
         $DRY_RUN_CMD ln -sfn "$_src/.hermes.md" "$_home/.hermes.md"
       fi
 
-      # Default-profile SOUL.md (the agent's identity).
-${
-      if config.joyBrain.full then ''
-        # Full brain (alps): joy-brain's own SOUL.md, seeded once (Hermes then
-        # treats it as writable per-user state).
-        if [ -e "$_src/SOUL.md" ] && [ ! -e "$_home/SOUL.md" ]; then
-          $DRY_RUN_CMD ln -sfn "$_src/SOUL.md" "$_home/SOUL.md"
-        fi
-      '' else ''
-        # Curated instance (wsl): the delegated-specialist role that firstmate
-        # dispatches to is tracked in this repo (modules/dev/hermes-soul.md),
-        # NOT the joy persona, and is re-pinned on every activation.
-        $DRY_RUN_CMD ln -sfn ${defaultSoul} "$_home/SOUL.md"
-      ''
-}
+      # SOUL.md (the agent's identity): joy-brain's own, seeded once (Hermes
+      # then treats it as writable per-user state).
+      if [ -e "$_src/SOUL.md" ] && [ ! -e "$_home/SOUL.md" ]; then
+        $DRY_RUN_CMD ln -sfn "$_src/SOUL.md" "$_home/SOUL.md"
+      fi
 
       # Private state dirs: symlink whichever of these joy-brain actually has
       # (guarded, so a missing dir is skipped rather than failing activation).
-      # scripts/ + bin/ are included because the browser skills reference
-      # the cdp-*.py helpers that live there (and those helpers already target
-      # the proxy contract at localhost:3333).
       for _d in bin contacts memory memories plugins profiles scripts; do
         if [ -d "$_src/$_d" ] && [ ! -e "$_home/$_d" ]; then
           $DRY_RUN_CMD ln -sfn "$_src/$_d" "$_home/$_d"
@@ -159,45 +121,13 @@ ${
         $DRY_RUN_CMD ln -sfn "$_src/memory" "$_home/memories"
       fi
 
-${
-      if config.joyBrain.full then ''
-        # Full brain (alps): ONE dir symlink for the whole skills tree. Keeping
-        # it a single symlink (rather than per-skill links) means skills the
-        # agent creates at runtime also land in the clone, exactly like the
-        # production container (HERMES_HOME == the joy-brain working tree).
-        if [ -d "$_src/skills" ] && [ ! -e "$_home/skills" ]; then
-          $DRY_RUN_CMD ln -sfn "$_src/skills" "$_home/skills"
-        fi
-      '' else ''
-        # Curated instance (wsl): the browser + `security` skills that used to
-        # be symlinked from joy-brain are now replaced by the purpose-built,
-        # repo-vendored set in modules/dev/hermes-skills/ (materialized by
-        # modules/dev/hermes-skills.nix, which runs right after this step).
-        # `includedSkills` is empty after the cutover.
-        $DRY_RUN_CMD mkdir -p "$_home/skills"
-
-        # Drop any stale symlink from a previous generation that still points
-        # into the joy-brain clone, so `hermes skills list` reflects only the
-        # new vendored set. Only clone-targeted links are removed - never the
-        # repo-vendored skills or anything the agent created itself - then any
-        # category dir (software/, research/) left empty is pruned.
-        find "$_home/skills" -maxdepth 2 -type l 2>/dev/null | while read -r _link; do
-          case "$(readlink "$_link" 2>/dev/null)" in
-            "$_src/skills/"*) $DRY_RUN_CMD rm -f "$_link" ;;
-          esac
-        done
-        find "$_home/skills" -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true
-${lib.optionalString (includedSkills != [ ]) ''
-        for _s in ${lib.escapeShellArgs includedSkills}; do
-          if [ -d "$_src/skills/$_s" ]; then
-            $DRY_RUN_CMD mkdir -p "$(dirname "$_home/skills/$_s")"
-            $DRY_RUN_CMD ln -sfn "$_src/skills/$_s" "$_home/skills/$_s"
-          else
-            echo "warning: joy-brain skill '$_s' not found under $_src/skills - not instantiated" >&2
-          fi
-        done
-''}      ''
-    }
+      # ONE dir symlink for the whole skills tree. Keeping it a single symlink
+      # (rather than per-skill links) means skills the agent creates at runtime
+      # also land in the clone, exactly like the production container
+      # (HERMES_HOME == the joy-brain working tree).
+      if [ -d "$_src/skills" ] && [ ! -e "$_home/skills" ]; then
+        $DRY_RUN_CMD ln -sfn "$_src/skills" "$_home/skills"
+      fi
     '';
   };
 }

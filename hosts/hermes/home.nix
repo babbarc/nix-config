@@ -28,10 +28,8 @@
   # The hermes profile imports NO shared modules/dev list (that list carries
   # laptop/server dev tooling this user does not need and must not collide with
   # the hand-managed dotfiles), so the direct-install modules declare their own
-  # dependencies via the options below - see modules/dev/hermes-agent.nix and
-  # modules/dev/joy-brain.nix for the two options.
+  # dependencies via the option below - see modules/dev/hermes-agent.nix.
   hermesAgent.standaloneDeps = true;
-  joyBrain.full = true;
 
   imports = [
     # The joy-stack podman quadlets (hermes/browser-proxy/qmd containers).
@@ -45,7 +43,8 @@
     ../../modules/dev/hermes-agent.nix
 
     # Full-brain instantiation of ~/.hermes from the private joy-brain clone
-    # (full skill tree, not the wsl curated subset).
+    # (the complete joy-brain tree; the wsl host uses modules/dev/hermes-home.nix
+    # instead).
     ../../modules/dev/joy-brain.nix
 
     # Linux browser backend (Q1a): browser-proxy.py as a systemd --user service
