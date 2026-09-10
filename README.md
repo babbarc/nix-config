@@ -484,9 +484,12 @@ profile, so two workers never write one memory).
   `skills.external_dirs` at the shared `~/.hermes/skills`, empties the cloned
   local skills dir, clears the cloned orchestrator memory, disables the
   credential skills unless `--with-credentials` is passed (decision #6), stamps
-  `SOUL.md` from the template, and copies + enables the `pass-enforcement`
-  plugin (`--clone` does not copy plugins). It refuses a bad name or an existing
-  profile; `--force` recreates one (wipes its memory and learned skills).
+  `SOUL.md` from the template, and copies + enables the repo base plugins
+  (`pass-enforcement` + `guardrails`; `--clone` does not copy plugins). It
+  refuses a bad name or an existing profile; `--force` recreates one (wipes its
+  memory and learned skills). `--sync-plugins <name>|--all` is the idempotent
+  fix path that copies + enables the base plugins on an expert profile created
+  before a plugin existed.
 - **Built artifacts are the expert's own runtime state, not Nix state.**
   Experts are self-contained: a CLI/plugin/skill an expert builds lives in that
 expert's own writable area (its profile's `skills/` and `plugins/`, or a
@@ -497,18 +500,27 @@ expert's own writable area (its profile's `skills/` and `plugins/`, or a
 
 ### Fleet guardrails (wsl)
 
-The captain's three rules after the 2026-09-10 live incident (an expert ground
-for ~44 minutes driving the captain's live Lightroom UI - 5,016 log lines, 25
-window raises, 16 patch rounds - with no interim report) are enforced across the
-fleet by `modules/dev/hermes-guardrails.nix`:
+The captain's rules after the 2026-09-10 live incident (an expert ground for ~44
+minutes driving the captain's live Lightroom UI - 5,016 log lines, 25 window
+raises, 16 patch rounds - with no interim report) are enforced across the fleet
+by `modules/dev/hermes-guardrails.nix`. A prose-only first pass then failed a
+second time, when the dispatcher reclaimed an orphaned card and the same expert
+treated the orchestrator-authored card as authorization, so rule 1 is now
+structural:
 
-1. **No live-app interaction without an explicit task-level instruction.** The
-   default is read-only verification from a snapshot (a copy of the catalog /
-   state); `bring_to_front` / raise / focus / click / type are only allowed when
-   the assigned card names the app and the action. Visual/creative/live-UI work
-   on the captain's own apps stays with the captain. Carried by
-   `hermes-soul.md`, the expert SOUL template, and the `operate-desktop` /
-   `delegated-task` skills.
+1. **Live-app control is default-deny, and only the CAPTAIN authorizes it.**
+   The default is read-only verification from a snapshot (a copy of the catalog
+   / state) or an off-screen capture. Raise / `bring_to_front` / focus / click /
+   type / key / scroll / drag is **structurally blocked** by the `guardrails`
+   plugin unless the current task carries an explicit, unexpired **captain**
+   grant: `hermes-live-app-authorize grant --task <id>`.
+   **An orchestrator-authored card is never authorization** - not a body naming
+   the app and the action, and not the expert's own judgment. The block covers
+   the cua-driver MCP tools, the native `computer_use` action set, the
+   `browser_*` toolset, and the mutating `hermes-browse` / `chrome-devtools-axi`
+   subcommands; read-only capture stays open. Carried structurally by the
+   plugin and in prose by `hermes-soul.md`, the expert SOUL template, and the
+   `operate-desktop` / `browse` / `delegated-task` skills.
 2. **UI work is serialized fleet-wide.** A visible/focused desktop is one
    shared resource. `hermes-desktop-lock` (packaged by the module) is a
    TTL-based advisory lock at `$HERMES_HOME/run/desktop.lock`, shared by every
@@ -526,15 +538,21 @@ fleet by `modules/dev/hermes-guardrails.nix`:
 
 Every tunable lives in the `hermesGuardrails.*` home-manager options
 (`modules/dev/hermes-guardrails.nix`; defaults `run_budget_seconds` 1800,
-`heartbeat_seconds` 300, `retry_bound` 3, `desktop_lock_ttl_seconds` 1800). The
-module renders the SOULs and shared skills through those values, writes
-`~/.hermes/guardrails.yaml`, and packages two CLIs:
+`heartbeat_seconds` 300, `retry_bound` 3, `desktop_lock_ttl_seconds` 1800,
+`liveAppGrantTtlSeconds` 7200). The module renders the SOULs and shared skills
+through those values, writes `~/.hermes/guardrails.yaml`, and packages three
+CLIs:
 
-- `hermes-guardrails show|values|budget-seconds|heartbeat-seconds|retry-bound|lock-path`
+- `hermes-guardrails show|values|budget-seconds|heartbeat-seconds|retry-bound|lock-path|live-app-auth-dir`
   prints the effective tunables (the SOULs and skills tell agents to read the
   values from here instead of hardcoding them).
 - `hermes-desktop-lock status|acquire|renew|release|run` is the fleet-wide
   live-desktop lock.
+- `hermes-live-app-authorize grant|revoke|list|check|show` is the **captain-only**
+  per-task live-app grant the plugin verifies. Grants live at
+  `$HERMES_HOME/live-app-authorization/<task>.grant`, are time-bounded, and can
+  be scoped with `--surfaces desktop,browser`. Agents must never run it or write
+  that directory by any other means.
 
 `nix build .#nixosConfigurations.wsl.config.system.build.toplevel` builds the
 whole wired stack; the alps full brain is unaffected (it does not import this
@@ -558,12 +576,25 @@ It is deliberately precise - `pass-axi`/`pass-to`/`pass-env`,
 `pass otp|ls|find|grep|insert|edit|git|init`, `hermes-web-login`, `recover-page`
 and unrelated commands that merely contain "pass" all still run.
 
-**`guardrails`** is the mechanical half of the run-budget rule: a
-`pre_tool_call` hook that injects the fleet default `max_runtime_seconds` into
-a `kanban_create` that did not set a usable positive value (an explicit value
-always wins; it never blocks). Hermes has no board-level default for the
+**`guardrails`** is a `pre_tool_call` hook with two jobs. First, it enforces
+**live-app default-deny**: the cua-driver MCP tools (allowlist of read-only
+captures), the native `computer_use` action set (open `capture` / `list_*` /
+`wait`, everything else denied), the `browser_*` toolset, and the mutating
+`hermes-browse` / `chrome-devtools-axi` subcommands are blocked unless the
+current task (`HERMES_KANBAN_TASK`) has an unexpired captain grant at
+`$HERMES_HOME/live-app-authorization/<task>.grant`. An orchestrator-authored
+card is deliberately not authorization; the block message tells the expert to
+`kanban_block` and route the decision to the captain. Second, it is the
+mechanical half of the run-budget rule: it injects the fleet default
+`max_runtime_seconds` into a `kanban_create` that did not set a usable positive
+value (an explicit value always wins). Hermes has no board-level default for the
 dispatcher's hard-stop cap, so this is what makes "no unbounded card" true even
 when the orchestrator forgets the field.
+
+Both plugins must be present in the profile that executes the tool call, so
+`hermes-expert-new` copies them into every new expert and
+`hermes-expert-new --sync-plugins <name>|--all` adds them to an existing one
+(the live incident left `photo-book-curator` without `guardrails`).
 
 Unlike skills, plugins are opt-in: the activation also runs
 `hermes plugins enable <name> --no-allow-tool-override` for each (idempotent,

@@ -1,13 +1,19 @@
 name: guardrails
-version: "1.0.0"
+version: "2.0.0"
 description: >-
-  pre_tool_call hook that structurally bounds every dispatched kanban card.
-  Hermes's hard stop is the dispatcher's per-task max_runtime_seconds (SIGTERM,
-  then SIGKILL, plus a `timed_out` event), and Hermes has no board-level default
-  for it - so an orchestrator that forgets the field creates an unbounded card.
-  This hook injects the fleet default from $HERMES_HOME/guardrails.yaml into
-  kanban_create whenever the caller did not set a usable positive value. An
-  explicit value always wins; the hook never blocks. The live-app gate, the
+  pre_tool_call hook that structurally enforces two fleet guardrails.
+  (1) Live-app control is DEFAULT-DENY: any tool that would raise, focus, click,
+  type, key, scroll, or drag in the captain's running applications (the
+  cua-driver MCP tools, the native `computer_use` wrapper, the `browser_*`
+  toolset, and the `hermes-browse` / `chrome-devtools-axi` browser CLIs) is
+  blocked unless the CURRENT task carries an explicit, unexpired CAPTAIN grant
+  created with `hermes-live-app-authorize grant --task <id>`. An
+  orchestrator-authored card, a task body, or the expert's own reasoning is NOT
+  authorization. Read-only capture (get_window_state, browser_snapshot, ...) is
+  not gated. (2) Every dispatched card is bounded: the hook injects the fleet
+  default `max_runtime_seconds` (from $HERMES_HOME/guardrails.yaml) into any
+  `kanban_create` that did not set a usable positive value - Hermes's hard stop
+  is the dispatcher's per-task cap and it has no board-level default. The
   fleet-wide desktop lock, the heartbeat cadence and the loop bound are judgment
   rules carried by the SOULs and the operate-desktop / delegated-task skills.
 author: "Fleet"
@@ -17,4 +23,6 @@ tags:
   - guardrails
   - kanban
   - budget
+  - live-app
+  - authorization
 license: "MIT"

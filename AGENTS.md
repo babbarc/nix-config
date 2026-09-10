@@ -453,7 +453,8 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
   skills, clear cloned `memories/MEMORY.md`/`USER.md`, gate the credential
   skills (`skills.disabled` is read by the engine but absent from the config
   defaults table, hence `config set --force`), stamp SOUL from the template,
-  copy + enable `pass-enforcement` (`--clone` never copies plugins). Credential
+  copy + enable the repo base plugins `pass-enforcement` + `guardrails`
+  (`--clone` never copies plugins). Credential
   skills are opt-in via `--with-credentials`. Refuses an existing profile
   without `--force` (which deletes and recreates). Run it from the
   orchestrator's shell: `--clone` copies the ACTIVE profile. It stamps SOUL
@@ -462,6 +463,10 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
   preserves its 0444 mode, so writing in place fails EACCES, while rename
   atomically replaces the read-only file/link without touching the store
   target (a crash there previously aborted the helper before the plugin copy).
+  `--sync-plugins <name>|--all` is the idempotent fix path for an expert created
+  before a base plugin existed: it copies + enables the same base plugins on an
+  existing profile (the live incident left `photo-book-curator` without
+  `guardrails`, so its live-app gate never loaded).
 - **Experts are self-contained; no shared AXI registry.** An expert's built
   AXIs live in its own writable area (profile `skills/`, `plugins/`, or a
   writable PATH dir such as `~/.local/bin` for a CLI) and are not shared across
@@ -473,12 +478,18 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
 
 Added after the 2026-09-10 live incident (the `photo-book-curator` expert ground
 ~44 min driving the captain's live Lightroom, 25 window raises, no interim
-report). `modules/dev/hermes-guardrails.nix` (imported only by
+report). A first pass of prose-only rules then failed again when the fleet was
+un-paused: the dispatcher reclaimed an orphaned card and the same expert drove
+the captain's LIVE Lightroom a second time, because the rule only blocked
+driving "without an explicit task instruction" - and the orchestrator-authored
+card carried one - and because `guardrails` was orchestrator-only, so the expert
+profile never loaded it. `modules/dev/hermes-guardrails.nix` (imported only by
 `hosts/wsl/configuration.nix`) is the single source of truth:
 
 - **Tunables are home-manager options** `hermesGuardrails.*`
   (`runBudgetSeconds` 1800, `heartbeatSeconds` 300, `retryBound` 3,
-  `desktopLockTtlSeconds` 1800, `desktopLockWaitSeconds` 120, `desktopLockPath`).
+  `desktopLockTtlSeconds` 1800, `desktopLockWaitSeconds` 120, `desktopLockPath`,
+  `liveAppAuthDir`, `liveAppGrantTtlSeconds` 7200).
   Never hardcode these numbers in prose: the module renders
   `modules/dev/{hermes-soul,hermes-expert-soul}.md` and every
   `modules/dev/hermes-skills/*/SKILL.md` through `@PLACEHOLDER@` substitution
@@ -491,17 +502,33 @@ report). `modules/dev/hermes-guardrails.nix` (imported only by
   (flat `key: value`, parsed with sed - no yq needed).
 - **CLIs** (packaged by the module, on PATH for orchestrator + workers):
   `hermes-guardrails` prints the tunables (`show`/`values`/`budget-seconds`/
-  `heartbeat-seconds`/`retry-bound`/`lock-path`); `hermes-desktop-lock` is the
-  fleet-wide live-desktop lock (`status`/`acquire`/`renew`/`release`/`run`,
-  TTL-based lock dir + owner file, shared because all profiles run as one unix
-  user; a dead holder's lock expires and is reclaimed). Source:
-  `modules/dev/hermes-guardrails-bin/`.
-- **`guardrails` plugin** (`modules/dev/hermes-plugins/guardrails/`) injects the
-  fleet default `max_runtime_seconds` into any `kanban_create` lacking a usable
-  positive value - Hermes has no board-level default for the dispatcher's hard
-  stop, so this is what makes "no unbounded card" structurally true. Enabled
-  alongside `pass-enforcement` by `hermes-plugins.nix`. It is orchestrator-only
-  and is deliberately NOT copied to experts by `hermes-expert-new`.
+  `heartbeat-seconds`/`retry-bound`/`lock-path`/`live-app-auth-dir`);
+  `hermes-desktop-lock` is the fleet-wide live-desktop lock
+  (`status`/`acquire`/`renew`/`release`/`run`, TTL-based lock dir + owner file,
+  shared because all profiles run as one unix user; a dead holder's lock expires
+  and is reclaimed); `hermes-live-app-authorize` is the CAPTAIN-only per-task
+  live-app grant (`grant`/`revoke`/`list`/`check`/`show`).
+  Source: `modules/dev/hermes-guardrails-bin/`.
+- **`guardrails` plugin** (`modules/dev/hermes-plugins/guardrails/`) does two
+  things in one `pre_tool_call` hook:
+  (1) **live-app control is default-deny** - it blocks the cua-driver MCP tools,
+  the native `computer_use` wrapper, the `browser_*` toolset and the
+  `hermes-browse`/`chrome-devtools-axi` mutating subcommands unless the CURRENT
+  task (`HERMES_KANBAN_TASK`) has an unexpired captain grant at
+  `$HERMES_HOME/live-app-authorization/<task>.grant`. An orchestrator-authored
+  card, a task body, or the expert's reasoning is deliberately NOT
+  authorization; read-only capture (`get_window_state`, `browser_snapshot`, ...)
+  is deliberately not gated. cua-driver tools are default-deny (allowlist of
+  read-only tools), `computer_use` is default-deny by action, browser tools by
+  tool name. (2) it injects the fleet default `max_runtime_seconds` into any
+  `kanban_create` lacking a usable positive value - Hermes has no board-level
+  default for the dispatcher's hard stop, so this is what makes "no unbounded
+  card" structurally true. Enabled alongside `pass-enforcement` by
+  `hermes-plugins.nix` for BOTH the orchestrator and every expert
+  (`hermes-expert-new` copies the base plugins in; `--sync-plugins` fixes an
+  existing profile). The grant CLI is packaged by the same module;
+  `liveAppAuthDir`/`liveAppGrantTtlSeconds` are the yaml keys both it and the
+  plugin read.
 - **The alps full brain is unaffected** - `joy-brain.nix` keeps its own
   SOUL/skills and does not import the guardrails module.
 
@@ -511,7 +538,7 @@ report). `modules/dev/hermes-guardrails.nix` (imported only by
 `hosts/wsl/configuration.nix`) vendors native Hermes plugins under
 `modules/dev/hermes-plugins/<name>/` (`plugin.yaml` + `__init__.py`,
 `provides_hooks: [pre_tool_call]` + a `register(ctx)`) and materializes them
-into `~/.hermes/plugins/`. Currently one: `pass-enforcement`, a `pre_tool_call`
+into `~/.hermes/plugins/`. Currently two: `pass-enforcement`, a `pre_tool_call`
 hook that structurally blocks the secret-dumping `pass` forms
 (`pass show <path>` and a bare `pass <path>`, incl. `-c`/`-q`, pipes,
 `sudo`/env/`bash -c` wrappers) in the `terminal` toolset - captain decision #8,

@@ -1,8 +1,8 @@
 ---
 name: delegated-task
-description: "The operating contract for a delegated task - fleet guardrails (live-app gate, desktop lock, run budget, heartbeat, loop bound), scope pre-flight, the irreversible-action gate, secret hygiene, and the outcome-report format. Load at the start of every task, before the first tool call, so the rules are in context before you act."
+description: "The operating contract for a delegated task - fleet guardrails (live-app default-deny + captain grant, desktop lock, run budget, heartbeat, loop bound), scope pre-flight, the irreversible-action gate, secret hygiene, and the outcome-report format. Load at the start of every task, before the first tool call, so the rules are in context before you act."
 annotation: "Delegated-worker operating contract: guardrails, scope, gate, hygiene, report"
-version: 1.1.0
+version: 1.2.0
 user-invocable: false
 metadata:
   hermes:
@@ -34,16 +34,24 @@ These apply to every task, before the first tool call and for its whole run.
 `hermes-guardrails show` prints the tunables; `~/.hermes/guardrails.yaml` is the
 source of truth.
 
-- **Live applications are off limits unless the task explicitly authorizes
-  driving them.** Your default is verification from a **snapshot** (a copy of
-  the catalog / database / state file), never the captain's live UI. "Check X in
-  the app" is not authorization to raise, focus, click, or type. Visual,
-  creative, and live-UI work on the captain's own apps belongs to the captain -
-  if it is needed and not authorized, stop and ask the dispatcher. See
-  **operate-desktop** for the full gate.
-- **If the task does authorize live driving, take the fleet-wide desktop lock
-  first** (`hermes-desktop-lock acquire`) - a visible/focused desktop is ONE
-  shared resource, so only one expert may drive it at a time. Renew it with each
+- **Live-app control is DEFAULT-DENY and only the CAPTAIN can authorize it.**
+  Your default is verification from a **snapshot** (a copy of the catalog /
+  database / state file) or an off-screen capture, never the captain's live UI.
+  Raising, focusing, clicking, typing, keying, scrolling, or dragging in an app
+  the captain is using is **structurally blocked by the `guardrails` plugin**
+  unless the captain granted live-app control for this exact task with
+  `hermes-live-app-authorize grant --task <id>`. **The card is not
+  authorization** - not a body that "checks X in the app", not one that names
+  the app and the action, and not your own judgment that it is needed. Check
+  with `hermes-live-app-authorize check --task "$HERMES_KANBAN_TASK"`; when it
+  reports DENIED (the normal case) do the work from a snapshot, or `kanban_block`
+  and ask the dispatcher to have the captain authorize this task. Never run
+  `hermes-live-app-authorize` yourself and never write under
+  `@LIVE_APP_AUTH_DIR@`; never hunt for another tool or a shell command that
+  reaches the same UI. See **operate-desktop** / **browse** for the full gate.
+- **If the captain's grant IS in place, take the fleet-wide desktop lock first**
+  (`hermes-desktop-lock acquire`) - a visible/focused desktop is ONE shared
+  resource, so only one expert may drive it at a time. Renew it with each
   heartbeat (`hermes-desktop-lock renew`) and release it when done, including on
   failure (`hermes-desktop-lock release`).
 - **Stay inside the run budget** (`hermes-guardrails budget-seconds`). When you

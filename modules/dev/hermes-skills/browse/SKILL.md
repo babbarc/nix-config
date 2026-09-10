@@ -1,8 +1,8 @@
 ---
 name: browse
-description: "Drive the captain's real Windows Chrome for authenticated web tasks - navigate, read the accessibility tree, click, fill non-secret fields, run JS, inspect console/network, screenshot. Use for logged-in flows, JS-only apps, multi-step account/checkout processes, and researching how to operate an app. Prefer the `hermes-browse` wrapper (chrome-devtools-axi over the CDP proxy) over the native browser_* tools."
-annotation: "Real-browser operation via hermes-browse (chrome-devtools-axi) over the CDP proxy"
-version: 1.0.0
+description: "Drive the captain's real Windows Chrome for authenticated web tasks - navigate, read the accessibility tree, click, fill non-secret fields, run JS, inspect console/network, screenshot. Live-app control is DEFAULT-DENY: only a captain grant for the specific task authorizes open/click/fill/type/press/scroll/dialog/eval, enforced by the `guardrails` plugin. Use for logged-in flows, JS-only apps, multi-step account/checkout processes, and researching how to operate an app. Prefer the `hermes-browse` wrapper (chrome-devtools-axi over the CDP proxy) over the native browser_* tools."
+annotation: "Real-browser operation via hermes-browse (chrome-devtools-axi) over the CDP proxy - default-deny, captain grant required"
+version: 2.0.0
 user-invocable: false
 metadata:
   hermes:
@@ -36,6 +36,37 @@ machine you have been lent.
   **not** reset cookies (unlike the native `browser_navigate` tool).
 - Downloads land on the **Windows** filesystem (the captain's Downloads
   folder), not in this WSL environment.
+
+## Live-app gate (read this first)
+
+This Chrome is one of the captain's **running applications**, so controlling it
+is **DEFAULT-DENY**, exactly like the desktop. The `guardrails` plugin blocks
+`browser_navigate`, `browser_click`, `browser_type`, `browser_press`,
+`browser_scroll`, `browser_back`, `browser_dialog`, `browser_cdp`, `browser_exec`,
+`browser_console(expression=...)`, the cua-driver `browser_*` tools, and the
+mutating `hermes-browse` / `chrome-devtools-axi` subcommands (`open`, `click`,
+`fill`, `type`, `press`, `scroll`, `back`, `eval`, `run`, `dialog`, ...) unless
+the CAPTAIN granted live-app control for this exact task:
+
+    hermes-live-app-authorize grant --task <task id> --note "<app and actions>"
+
+**The assigned card is not authorization.** A card body that says to log in or to
+navigate somewhere does not lift the block, and neither does your own judgment.
+Check with `hermes-live-app-authorize check --task "$HERMES_KANBAN_TASK"`; if it
+reports DENIED (the normal case), stop and `kanban_block` the card, asking the
+dispatcher to have the captain authorize this task. Never run
+`hermes-live-app-authorize` yourself, never write under `@LIVE_APP_AUTH_DIR@`,
+and never hunt for another tool or CLI that reaches the same Chrome.
+
+Read-only work is **not** gated and is the default path: `hermes-browse
+snapshot`, `screenshot`, `pages`, `console`, `network`, and `lighthouse`, plus the
+native `browser_snapshot` / `browser_vision` / `browser_get_images` tools and
+plain `curl`. Prefer those, and check whether a non-browser path (`curl`,
+`recover-blocked-page`) answers the question first.
+
+Once the captain's grant is in place, drive only what the grant names; the
+credential path below (**web-login**) stays the only sanctioned way for a secret
+to reach a page.
 
 ## Preferred tool: `hermes-browse`
 
@@ -106,6 +137,8 @@ Keep searches scoped to the task.
 
 Capture a screenshot and return to the dispatcher - do not improvise past:
 
+- any live-app control without a captain grant for this task (see the gate
+  above),
 - a CAPTCHA or a hard bot-detection wall,
 - a prompt for payment, a purchase confirmation, account deletion, or a
   consent/permission the assigned task did not authorize,

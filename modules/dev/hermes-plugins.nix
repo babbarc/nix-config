@@ -15,13 +15,23 @@ let
   # `pass-axi` (pass-access) and `hermes-web-login` (web-login) paths. The
   # config shell-hook mechanism only expresses block/modify, so a plugin hook
   # is the correct owner.
+  #
+  # guardrails: a `pre_tool_call` hook that (a) default-denies every live-app
+  # control tool call unless the CURRENT task carries an unexpired CAPTAIN
+  # grant (see modules/dev/hermes-guardrails-bin/hermes-live-app-authorize),
+  # and (b) injects the fleet default `max_runtime_seconds` into an unbounded
+  # `kanban_create`.
   pluginsSrc = ./hermes-plugins;
   pluginNames = builtins.attrNames
     (lib.filterAttrs (_: t: t == "directory") (builtins.readDir pluginsSrc));
 
   # Plugins the default (orchestrator) profile must load. pass-enforcement is
-  # the secret-dumping gate; guardrails injects the fleet default
-  # max_runtime_seconds into every unbounded kanban_create.
+  # the secret-dumping gate; guardrails is the live-app default-deny gate and
+  # the run-budget injector. Every expert profile must carry BOTH too (the
+  # live-app gate and the secret gate only work in the profile that actually
+  # executes the tool call) - hermes-expert-new copies them in on create and
+  # `hermes-expert-new --sync-plugins <name>|--all` adds them to an expert that
+  # predates them.
   enabledPlugins = [ "pass-enforcement" "guardrails" ];
 in
 {

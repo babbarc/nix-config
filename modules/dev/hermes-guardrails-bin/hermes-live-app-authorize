@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+# hermes-live-app-authorize - the CAPTAIN's grant/revoke for live-app control.
+#
+# This is the ONLY authorization the `guardrails` plugin accepts for driving the
+# captain's running applications (raise / focus / click / type / key / scroll /
+# drag via the cua-driver MCP tools, the native `computer_use` wrapper, the
+# `browser_*` toolset, or the `hermes-browse` / `chrome-devtools-axi` CLIs).
+#
+# It exists because the 2026-09-10 live incident showed that an
+# orchestrator-authored card is NOT authorization: the card carried the
+# instruction, so the expert treated it as a green light. The rule is now
+# default-deny, and the escape hatch is an explicit, time-bounded, per-task
+# grant that the CAPTAIN creates by hand with this command - never the
+# orchestrator and never the expert. Agents must never run this command.
+#
+# A grant is keyed by the kanban task id the worker runs under
+# (`$HERMES_KANBAN_TASK`) and is written where the plugin reads it:
+#
+#   $HERMES_HOME/live-app-authorization/<task>.grant      (flat `key: value`)
+#
+# The grant is time-bounded (`--minutes`, default from guardrails.yaml) so a
+# forgotten grant cannot authorize tomorrow's work. `--surfaces` narrows it to
+# `desktop` and/or `browser`; the default `all` covers both.
+#
+# Usage:
+#   hermes-live-app-authorize grant --task <id> [--surfaces desktop,browser|all]
+#                                  [--minutes N] [--note "app and actions"]
+#   hermes-live-app-authorize revoke --task <id>
+#   hermes-live-app-authorize list
+#   hermes-live-app-authorize check --task <id> [--surface desktop|browser]
+#   hermes-live-app-authorize show  --task <id>
+#
+# `check` exits 0 when the task is authorized (optionally for that surface) and
+# 1 otherwise - the expert can run it to see whether it may proceed.
+
+set -euo pipefail
+
+# The grant store lives in the DEFAULT hermes root. A dispatcher-spawned worker
+# runs with HERMES_HOME=<root>/profiles/<name>, so resolving $HERMES_HOME
+# directly would look in the wrong place. Mirror the engine's own resolution (a
+# profile-shaped HERMES_HOME roots at its grandparent); @HERMES_GUARDRAILS_HOME@
+# is baked in at build time as the fallback when HERMES_HOME is unset.
+hermes_root() {
+  local home="${1:-${HERMES_HOME:-@HERMES_GUARDRAILS_HOME@}}"
+  home="${home%/}"
+  case "$home" in
+    */profiles/*) printf '%s' "$(dirname "$(dirname "$home")")" ;;
+    *) printf '%s' "$home" ;;
+  esac
+}
+
+guardrails_home="${HERMES_GUARDRAILS_HOME:-$(hermes_root)}"
+yaml_file="${HERMES_GUARDRAILS_FILE:-$guardrails_home/guardrails.yaml}"
+
+yaml_get() {
+  local key="$1"
+  [ -f "$yaml_file" ] || return 1
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*:[[:space:]]*//p" "$yaml_file" \
+    | head -n 1 \
+    | sed -e 's/^"//' -e 's/"$//'
+}
+
+value_or() {
+  local key="$1" fallback="$2" got
+  got="$(yaml_get "$key" || true)"
+  if [ -n "$got" ]; then printf '%s' "$got"; else printf '%s' "$fallback"; fi
+}
+
+auth_dir="$(value_or live_app_auth_dir "$guardrails_home/live-app-authorization")"
+grant_ttl="$(value_or live_app_grant_ttl_seconds 7200)"
+
+now() { date +%s; }
+
+# The filename sanitizer MUST match modules/dev/hermes-plugins/guardrails
+# (`_UNSAFE_NAME_CHARS`): the plugin resolves <task>.grant from the raw task id.
+grant_file() {
+  printf '%s/%s.grant' "$auth_dir" "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/_/g')"
+}
+
+valid_task() {
+  printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._-]+$'
+}
+
+valid_surfaces() {
+  local surfaces="$1" part
+  [ -n "$surfaces" ] || return 1
+  local IFS=','
+  for part in $surfaces; do
+    case "$part" in
+      all|desktop|browser) ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+meta_get() {
+  local file="$1" key="$2"
+  [ -f "$file" ] || return 1
+  sed -n "s/^${key}:[[:space:]]*//p" "$file" | head -n 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: hermes-live-app-authorize <command>
+
+  grant --task <id> [--surfaces desktop,browser|all] [--minutes N]
+                    [--note "app and actions"]
+                          authorize live-app control for one kanban task
+  revoke --task <id>      drop the grant
+  list                    list active grants
+  check --task <id> [--surface desktop|browser]
+                          exit 0 when authorized, 1 when not (default deny)
+  show --task <id>        print one grant
+  help                    this text
+
+This command is CAPTAIN-ONLY. Agents (the orchestrator and every domain expert)
+must never run it, and must never create or edit a file under
+$HERMES_HOME/live-app-authorization by any other means.
+EOF
+}
+
+cmd_grant() {
+  local task="" surfaces="all" minutes="" note=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --task) task="${2:-}"; shift 2 ;;
+      --task=*) task="${1#*=}"; shift ;;
+      --surfaces) surfaces="${2:-}"; shift 2 ;;
+      --surfaces=*) surfaces="${1#*=}"; shift ;;
+      --minutes) minutes="${2:-}"; shift 2 ;;
+      --minutes=*) minutes="${1#*=}"; shift ;;
+      --note) note="${2:-}"; shift 2 ;;
+      --note=*) note="${1#*=}"; shift ;;
+      *) echo "hermes-live-app-authorize grant: unexpected argument '$1'" >&2; return 2 ;;
+    esac
+  done
+  [ -n "$task" ] || { echo "hermes-live-app-authorize grant: --task is required" >&2; return 2; }
+  valid_task "$task" || { echo "hermes-live-app-authorize grant: invalid task id '$task' (want ^[A-Za-z0-9._-]+$)" >&2; return 2; }
+  valid_surfaces "$surfaces" || { echo "hermes-live-app-authorize grant: --surfaces must be 'all' or a comma list of desktop/browser (got '$surfaces')" >&2; return 2; }
+  case "$minutes" in
+    "") minutes=$(( grant_ttl / 60 )) ;;
+    *[!0-9]*) echo "hermes-live-app-authorize grant: --minutes must be a positive integer" >&2; return 2 ;;
+  esac
+  [ "$minutes" -gt 0 ] || { echo "hermes-live-app-authorize grant: --minutes must be a positive integer" >&2; return 2; }
+  note="$(printf '%s' "$note" | tr '\n\r' '  ')"
+
+  local file started expires
+  file="$(grant_file "$task")"
+  mkdir -p "$auth_dir"
+  started="$(now)"
+  expires=$(( started + minutes * 60 ))
+  local tmp="${file}.tmp.$$"
+  {
+    printf 'schema: hermes-live-app-authorization/v1\n'
+    printf 'granted_by: captain\n'
+    printf 'task: %s\n' "$task"
+    printf 'surfaces: %s\n' "$surfaces"
+    printf 'note: %s\n' "$note"
+    printf 'granted_at: %s\n' "$started"
+    printf 'expires_at: %s\n' "$expires"
+  } > "$tmp"
+  mv "$tmp" "$file"
+  echo "live-app authorization granted: task=$task surfaces=$surfaces minutes=$minutes -> $file"
+  echo "  expires: $(date -d "@$expires" 2>/dev/null || echo "$expires")"
+}
+
+cmd_revoke() {
+  local task=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --task) task="${2:-}"; shift 2 ;;
+      --task=*) task="${1#*=}"; shift ;;
+      *) echo "hermes-live-app-authorize revoke: unexpected argument '$1'" >&2; return 2 ;;
+    esac
+  done
+  [ -n "$task" ] || { echo "hermes-live-app-authorize revoke: --task is required" >&2; return 2; }
+  local file
+  file="$(grant_file "$task")"
+  if [ -e "$file" ]; then
+    rm -f "$file"
+    echo "live-app authorization revoked: task=$task"
+  else
+    echo "live-app authorization: no grant for task=$task"
+  fi
+}
+
+cmd_show() {
+  local task=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --task) task="${2:-}"; shift 2 ;;
+      --task=*) task="${1#*=}"; shift ;;
+      *) echo "hermes-live-app-authorize show: unexpected argument '$1'" >&2; return 2 ;;
+    esac
+  done
+  [ -n "$task" ] || { echo "hermes-live-app-authorize show: --task is required" >&2; return 2; }
+  local file
+  file="$(grant_file "$task")"
+  [ -f "$file" ] || { echo "live-app authorization: no grant for task=$task" >&2; return 1; }
+  cat "$file"
+}
+
+cmd_list() {
+  [ -d "$auth_dir" ] || { echo "live-app authorization: no grants ($auth_dir)"; return 0; }
+  local found=0 file task surfaces expires note
+  for file in "$auth_dir"/*.grant; do
+    [ -e "$file" ] || continue
+    found=1
+    task="$(meta_get "$file" task || true)"
+    surfaces="$(meta_get "$file" surfaces || true)"
+    expires="$(meta_get "$file" expires_at || true)"
+    note="$(meta_get "$file" note || true)"
+    printf 'task=%s surfaces=%s expires_at=%s note="%s"\n' "$task" "$surfaces" "$expires" "$note"
+  done
+  [ "$found" -eq 1 ] || echo "live-app authorization: no grants ($auth_dir)"
+}
+
+cmd_check() {
+  local task="" surface=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --task) task="${2:-}"; shift 2 ;;
+      --task=*) task="${1#*=}"; shift ;;
+      --surface) surface="${2:-}"; shift 2 ;;
+      --surface=*) surface="${1#*=}"; shift ;;
+      *) echo "hermes-live-app-authorize check: unexpected argument '$1'" >&2; return 2 ;;
+    esac
+  done
+  [ -n "$task" ] || { echo "hermes-live-app-authorize check: --task is required" >&2; return 2; }
+  if [ -n "$surface" ]; then
+    valid_surfaces "$surface" || { echo "hermes-live-app-authorize check: --surface must be desktop or browser" >&2; return 2; }
+  fi
+  local file expires surfaces
+  file="$(grant_file "$task")"
+  if [ ! -f "$file" ]; then
+    echo "live-app control DENIED for task=$task (no captain grant)"
+    return 1
+  fi
+  expires="$(meta_get "$file" expires_at || true)"
+  case "$expires" in
+    ""|*[!0-9]*) echo "live-app control DENIED for task=$task (malformed grant)" >&2; return 1 ;;
+  esac
+  if [ "$(now)" -ge "$expires" ]; then
+    echo "live-app control DENIED for task=$task (grant expired at $expires)"
+    return 1
+  fi
+  surfaces="$(meta_get "$file" surfaces || true)"
+  if [ -n "$surface" ]; then
+    case ",$surfaces," in
+      *",all,"*|*",$surface,"*) ;;
+      *) echo "live-app control DENIED for task=$task surface=$surface (grant covers '$surfaces')"; return 1 ;;
+    esac
+  fi
+  echo "live-app control GRANTED for task=$task (surfaces=${surfaces:-all}, expires_at=$expires)"
+  return 0
+}
+
+[ "$#" -gt 0 ] || { usage >&2; exit 2; }
+command="$1"; shift
+case "$command" in
+  grant) cmd_grant "$@" ;;
+  revoke) cmd_revoke "$@" ;;
+  list) cmd_list "$@" ;;
+  check) cmd_check "$@" ;;
+  show) cmd_show "$@" ;;
+  help|-h|--help) usage ;;
+  *) echo "hermes-live-app-authorize: unknown command '$command'" >&2; usage >&2; exit 2 ;;
+esac
