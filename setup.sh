@@ -35,7 +35,10 @@
 # decides which env keys are asked for and written: every role gets
 # DOTFILES_USERNAME + DOTFILES_USER_EMAIL + DOTFILES_HOST_ROLE (the latter
 # fixed to the role); laptop also gets its server / joy-console /
-# stereo-transcode keys. WEZTERM_*
+# stereo-transcode keys; wsl also gets the optional corporate-CA key and
+# DOTFILES_WINDOWS_USER (auto-detected via WSL interop - the Windows account
+# name that the Cua desktop-driver path in modules/dev/hermes-agent.nix is
+# built from). WEZTERM_*
 # keys are Windows-side only and never prompted or written here - the Windows
 # machine maintains its own env file (see env.example). An existing env file's
 # keys outside the role's matrix are dropped on rewrite (the final summary
@@ -89,6 +92,8 @@ Environment (all optional):
                    (skips the source prompt)
   SETUP_USERNAME   machine username (skips the username prompt)
   SETUP_USER_EMAIL git identity email (skips the email prompt)
+  SETUP_WINDOWS_USER  Windows account name for the wsl role (skips
+                   auto-detection of C:\Users\<user>)
   SETUP_SYSTEM     force the Nix system (x86_64-linux|aarch64-linux);
                    normally auto-detected from uname -m
 EOF
@@ -478,6 +483,60 @@ fi
 if [ "$ROLE" = wsl ]; then
   log "corporate CA (only on a corporate network with a TLS-intercepting proxy - Enter or 'skip' omits)"
   DOTFILES_CORPORATE_CA_DIR="$(ask_skip 'Absolute path to a directory of root CA cert files already on this machine' "$(def DOTFILES_CORPORATE_CA_DIR "")")"
+
+  # Windows account name (the `<user>` in C:\Users\<user>). Only
+  # modules/dev/hermes-agent.nix uses it, to build the Cua desktop driver's
+  # install path. Detect it rather than prompt: WSL interop first
+  # (powershell.exe, then cmd.exe), then a /mnt/c/Users scan that skips the
+  # standard system profiles, and only prompt when that scan is ambiguous or
+  # comes up empty. SETUP_WINDOWS_USER / an existing env value short-circuit
+  # detection.
+  log "Windows account (for the Cua desktop-driver path in hermes-agent.nix)"
+  DOTFILES_WINDOWS_USER="${SETUP_WINDOWS_USER:-$(def DOTFILES_WINDOWS_USER "")}"
+  if [ -n "$DOTFILES_WINDOWS_USER" ]; then
+    if [ -n "${SETUP_WINDOWS_USER:-}" ]; then
+      info "Windows account: $DOTFILES_WINDOWS_USER (from SETUP_WINDOWS_USER)"
+    else
+      info "Windows account: $DOTFILES_WINDOWS_USER (from the existing env file)"
+    fi
+  else
+    win_user=""
+    if command -v powershell.exe >/dev/null 2>&1; then
+      win_user="$(powershell.exe -NoProfile -NonInteractive -Command '$env:USERNAME' 2>/dev/null | tr -d '\r' | head -n 1 || true)"
+    fi
+    if [ -z "$win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
+      win_user="$(cmd.exe /c 'echo %USERNAME%' 2>/dev/null | tr -d '\r' | head -n 1 || true)"
+    fi
+    case "$win_user" in
+      '' | '%USERNAME%') win_user="" ;;
+    esac
+    if [ -n "$win_user" ]; then
+      info "Windows account: $win_user (detected via WSL interop)"
+    elif [ -d /mnt/c/Users ]; then
+      win_candidates=()
+      for d in /mnt/c/Users/*/; do
+        [ -d "$d" ] || continue
+        name="$(basename "$d")"
+        case "$name" in
+          Default | 'Default User' | 'Default.migrated' | Public | 'All Users' | defaultuser0 | WDAGUtilityAccount) continue ;;
+        esac
+        win_candidates+=("$name")
+      done
+      if [ "${#win_candidates[@]}" -eq 1 ]; then
+        win_user="${win_candidates[0]}"
+        info "Windows account: $win_user (only non-system profile under /mnt/c/Users)"
+      elif [ "${#win_candidates[@]}" -gt 1 ]; then
+        info "multiple Windows profiles under /mnt/c/Users: ${win_candidates[*]}"
+        win_user="$(ask 'Windows account name' "${win_candidates[0]}")"
+      fi
+    fi
+    if [ -n "$win_user" ]; then
+      DOTFILES_WINDOWS_USER="$win_user"
+    else
+      DOTFILES_WINDOWS_USER="$(ask_skip 'Windows account name (Enter or skip to omit - hermes-agent.nix then falls back to its env.example placeholder)' '')"
+      [ -n "$DOTFILES_WINDOWS_USER" ] || warn "skipped DOTFILES_WINDOWS_USER - the Cua desktop-driver path will use hermes-agent.nix's placeholder default until you set it"
+    fi
+  fi
 fi
 
 # --- assemble the env file ----------------------------------------------------------
@@ -516,8 +575,9 @@ $(env_line STEREO_TRANSCODE_ENDPOINT "$STEREO_TRANSCODE_ENDPOINT")
 "
 fi
 if [ "$ROLE" = wsl ]; then
-  ENV_CONTENT+="# nix (wsl: optional corporate CA)
+  ENV_CONTENT+="# nix (wsl: optional corporate CA + Windows account for the Cua driver path)
 $(env_line DOTFILES_CORPORATE_CA_DIR "$DOTFILES_CORPORATE_CA_DIR")
+$(env_line DOTFILES_WINDOWS_USER "${DOTFILES_WINDOWS_USER:-}")
 "
 fi
 

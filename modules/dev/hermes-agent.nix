@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, dotfilesEnv, ... }:
 let
   # Pinned upstream release. v2026.8.31 == pyproject 0.21.0 == revision
   # 29112bef099274229cadff79cdff7bf7b99c4b77 - the same base the joy-stack
@@ -12,11 +12,15 @@ let
   hermesHome = "${config.home.homeDirectory}/.hermes";
 
   # Windows path of the Cua computer-use driver, installed per-user (no admin,
-  # autostart off) by cua-driver-bootstrap.ps1 on the Windows host. This is
-  # the captain's Windows user; %LOCALAPPDATA%\Programs\Cua is the fixed
-  # install root the cua.ai installer uses. Change the `palla` segment for a
-  # different Windows user.
-  cuaDriverExe = ''C:\Users\palla\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe'';
+  # autostart off) by cua-driver-bootstrap.ps1 on the Windows host.
+  # %LOCALAPPDATA%\Programs\Cua is the fixed install root the cua.ai installer
+  # uses; only the `C:\Users\<user>` segment is per-machine, so it comes from
+  # DOTFILES_WINDOWS_USER in ~/.config/dotfiles/env (setup.sh detects the
+  # Windows username via WSL interop on the wsl role - see env.example). The
+  # committed env.example placeholder keeps pure flake evaluation working on a
+  # fresh clone; a real host overrides it with its own value.
+  windowsUser = dotfilesEnv.DOTFILES_WINDOWS_USER or "your-windows-user";
+  cuaDriverExe = ''C:\Users\${windowsUser}\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe'';
 in
 {
   options.hermesAgent = {

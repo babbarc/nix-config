@@ -9,13 +9,15 @@ that repo's migration report at
 `dotfiles-nix-chezmoi-agenix-migration-plan/report.md` for full design rationale.
 This repo started as Phase 1 of that plan (scaffolding + agenix wiring),
 validated by pure Nix evaluation only - see "Validating changes" below for
-what an agent session can itself verify. Since then, the `laptop` and
-`server` hosts have been built and activated end-to-end on their real
-hardware and validated there by the captain directly; real activation is
-run by hand on the actual machine, not from an agent session, so it leaves
-no trace in this repo's git history - don't expect a commit to corroborate
-it. `wsl` has not been activated on a live system; treat it as
-evaluation-only until told otherwise.
+what an agent session can itself verify. Since then, the `laptop`,
+`server`, and `wsl` hosts have all been built and activated end-to-end on
+their real hardware and validated there by the captain directly; real
+activation is run by hand on the actual machine, not from an agent
+session, so it leaves no trace in this repo's git history - don't expect a
+commit to corroborate it. For `wsl` this covers repeated `nixos-rebuild
+switch` runs on a real NixOS-WSL machine with the Hermes agent, the
+Windows-Chrome CDP proxy, the cua-driver desktop path, the vendored skill
+set, and the `pass-enforcement` plugin all live and exercised.
 
 ## Validating changes
 
@@ -213,11 +215,18 @@ Windows side) runs at activation, after `hermesHomeInstantiate` so it edits
 the seeded `~/.hermes/config.yaml`:
 
     hermes mcp add cua-driver --command powershell.exe \
-      --args -NoProfile -Command "& 'C:\Users\palla\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe' mcp"
+      --args -NoProfile -Command "& 'C:\Users\<DOTFILES_WINDOWS_USER>\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe' mcp"
 
-idempotent (skipped when `~/.hermes/config.yaml` already lists `cua-driver`)
-and warn-not-die. The Windows-side install (per-user, no admin, autostart
-off) is `cua-driver-bootstrap.ps1` at the repo root, which invokes the
+The `C:\Users\<user>` segment is not hardcoded: `hermes-agent.nix` reads
+`dotfilesEnv.DOTFILES_WINDOWS_USER` (default: the `env.example` placeholder,
+which keeps pure eval working) and `setup.sh` detects the real Windows
+account on the `wsl` role via WSL interop (`powershell.exe`/`cmd.exe`, then
+a `/mnt/c/Users` scan) and writes it to `~/.config/dotfiles/env`.
+
+The registration is idempotent (skipped when `~/.hermes/config.yaml` already
+lists `cua-driver`) and warn-not-die. The Windows-side install (per-user, no
+admin, autostart off) is `cua-driver-bootstrap.ps1` at the repo root, which
+invokes the
 official `https://cua.ai/driver/install.ps1` with `-NoAutoStart`. Hermes
 reaches the driver over WSL interop (`powershell.exe`), so the interop pins
 in `hosts/wsl/configuration.nix` are load-bearing. cua-driver is
