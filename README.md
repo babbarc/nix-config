@@ -22,12 +22,15 @@ pure Nix evaluation (`nix build`/`nix flake check`, no impure inputs) - see
 `AGENTS.md`'s "Validating changes" section for the exact commands, which
 is the extent of what any agent session here can itself verify.
 
-Beyond that: **laptop** and **server** have been built and activated
-end-to-end on their real hardware and validated there by the captain
-directly (real activation is run by hand, not from an agent session per
-this repo's own posture, so it leaves no trace in this repo's git
-history). **wsl** has not - nothing indicates it has been activated on a
-real machine yet, so treat it as evaluation-only until proven otherwise.
+Beyond that: **laptop**, **server**, and **wsl** have all been built and
+activated end-to-end on their real hardware and validated there by the
+captain directly (real activation is run by hand, not from an agent
+session per this repo's own posture, so it leaves no trace in this repo's
+git history). For **wsl** specifically this covers repeated
+`nixos-rebuild switch` runs on a real NixOS-WSL machine, with the Hermes
+agent, the Windows-Chrome CDP proxy, the cua-driver desktop path, the
+vendored skill set, and the `pass-enforcement` plugin all live and
+exercised.
 
 ## Relationship to `dotfiles`
 
@@ -105,8 +108,9 @@ wsl --import NixOS C:\WSL\NixOS nixos.wsl --version 2
 
 ## Per-machine values
 
-Machine-specific values (username, email, host role, and a handful of
-laptop-only keys like the home server hostname) live in a plain
+Machine-specific values (username, email, host role, a handful of
+laptop-only keys like the home server hostname, and on `wsl` the Windows
+account name for the Cua driver path) live in a plain
 `KEY=VALUE` file at `~/.config/dotfiles/env` - never in this repo.
 `env.example` documents every key. `setup.sh` writes this file for you,
 asking only the keys the detected role's matrix needs; a manual copy also
@@ -170,7 +174,8 @@ Two halves:
   powershell.exe -ExecutionPolicy Bypass -File .\cua-driver-bootstrap.ps1
   ```
 
-  Installed path: `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`.
+  Installed path: `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`,
+  i.e. `C:\Users\<user>\AppData\Local\Programs\Cua\...`.
 
 - **WSL/NixOS side** (declarative): `hosts/wsl/configuration.nix` pins the
   WSL interop settings (`wsl.interop.register`, `wsl.wslConf.interop`, ...)
@@ -183,10 +188,28 @@ Two halves:
     --args -NoProfile -Command "& '<cua-driver.exe path>' mcp"
   ```
 
+  The `C:\Users\<user>` segment of that path is the one per-machine piece,
+  so it is not hardcoded: it comes from `DOTFILES_WINDOWS_USER` in
+  `~/.config/dotfiles/env`, which `setup.sh` fills in on the `wsl` role by
+  detecting the Windows account over WSL interop (`powershell.exe`, then
+  `cmd.exe`, then a `/mnt/c/Users` scan). The committed `env.example`
+  placeholder keeps pure evaluation working; a real host carries its actual
+  value.
+
   The registration is idempotent (skipped when `~/.hermes/config.yaml`
   already lists `cua-driver`) and warn-not-die, matching the repo's other
   activation steps. A fresh host is ready after a rebuild + one bootstrap
   run, in either order.
+
+On the `wsl` host the raw `cua-driver` MCP tools are the working desktop
+surface. Hermes's native `computer_use` wrapper cannot run there (it needs
+an X11 client library that is absent on NixOS-WSL), so the
+`operate-desktop` skill drives the `cua-driver` tools directly; the wrapper
+stays enabled only as a no-op fallback. When the agent works out how to
+drive a new app it saves that as its own `operate-<app>` skill in the
+writable `~/.hermes/skills/` (the vendored skills are read-only Nix
+symlinks and cannot be patched) - those learned skills persist across
+rebuilds.
 
 ## Windows Chrome CDP proxy
 
@@ -310,6 +333,16 @@ because the laptop/server hosts run no Hermes agent and no WSL interop:
   empty value degrades to clone-HEAD-and-warn so a missing pin never
   hard-fails activation). See the "private data" notes below.
 
+  **What the clone supplies on `wsl` is the `~/.hermes` scaffolding, not
+  skills.** The curated `wsl` instance's skills are repo-vendored and
+  self-contained (`joyBrain.includedSkills` is empty here - see below). The
+  clone is still fetched because `~/.hermes` is built from it: the
+  `config.yaml` seed, the symlinked `plugins/` directory, and - the part the
+  vendored skills actually depend on - the `~/.hermes/bin` helper scripts
+  (`pass-to`, `pass-inspect`, `pass-env`, the `cdp-*.py` browser scripts)
+  that `pass-access` and `web-login` call into. So it is a home-scaffolding
+  dependency, not a skill dependency.
+
 ### Browser wiring
 
 Hermes treats `{HERMES_HOME}/config.yaml` as optional per-user state (its own
@@ -332,7 +365,9 @@ other config key - joy-brain's own config plus Hermes's runtime edits via
 
 ### Skills: a purpose-built set, vendored in this repo
 
-The curated wsl instance no longer borrows any skills from joy-brain. It runs a
+The curated wsl instance no longer borrows any skills from joy-brain
+(`joyBrain.includedSkills` is empty on this host - the clone is fetched only
+for the `~/.hermes` scaffolding, see the `joy-brain.nix` note above). It runs a
 small, purpose-built, [AXI](https://axi.md/)-shaped set tailored to the
 firstmate-delegated role, **vendored in this repo** under
 `modules/dev/hermes-skills/<skill>/SKILL.md` (same posture as
@@ -344,8 +379,8 @@ firstmate-delegated role, **vendored in this repo** under
 | `browse` | Drive the captain's real Windows Chrome for authenticated web tasks via the `hermes-browse` wrapper (the `chrome-devtools-axi` CLI over the CDP proxy); curl-vs-browser routing; automatic proxy warm-up; verify-each-step discipline; stop points. Searches go through the native `web_search` tool (keyless `web-ddgs` backend), not Chrome. |
 | `web-login` | Zero-exposure credential/OTP entry into a browser form - the secret is read from `pass` internally, never through a tool parameter. Owns the entire login surface. |
 | `pass-access` | Safe `pass` store access - find / ls / inspect / otp / doctor - metadata only, the secret never reaches stdout. |
-| `operate-desktop` | Guide (no CLI) for operating the Windows desktop through the `cua-driver` MCP tools with an observe -> act -> verify loop. |
-| `recover-blocked-page` | Recover a 403/429/paywall/WAF page via the archive ladder (Wayback -> archive.today -> reader -> API pivot -> browser), with provenance. |
+| `operate-desktop` | Guide (no CLI) for operating the Windows desktop through the raw `cua-driver` MCP tools with an observe -> act -> verify loop. On `wsl` the native `computer_use` wrapper cannot run (no X11 client lib), so these MCP tools are the working surface. When the agent learns an app it saves an `operate-<app>` skill of its own in the writable `~/.hermes/skills/`. |
+| `recover-blocked-page` | Recover a 403/429/paywall/WAF page via the archive ladder (Wayback -> archive.today -> reader -> API pivot -> browser), with provenance. Ships the `recover-page` wrapper. |
 | `delegated-task` | The operating contract as a checklist - scope pre-flight, the irreversible-action gate, secret hygiene, outcome-report format. |
 
 Skill discovery needs **no** trust/enable step: Hermes scans
@@ -354,8 +389,10 @@ Skill discovery needs **no** trust/enable step: Hermes scans
 only for repo-local project skills (`./.hermes/skills` in a git checkout).
 
 Native toolsets stay enabled: Hermes's built-in `browser_*` tools remain as a
-fallback behind `browse`, and native `computer_use` remains alongside the
-`cua-driver` MCP path behind `operate-desktop` (captain decisions, 2026-09-09).
+fallback behind `browse`. Native `computer_use` also stays enabled, but on the
+`wsl` host it cannot actually run (it needs an X11 client library absent on
+NixOS-WSL), so `operate-desktop` drives the raw `cua-driver` MCP tools directly
+and the wrapper is only a no-op fallback (captain decisions, 2026-09-09).
 
 `pass-access`'s `pass-axi` CLI is packaged by `hermes-skills.nix`
 (`pkgs.writeShellApplication`, on PATH) and reads the captain's real store at
@@ -371,9 +408,11 @@ itself is resolved from PATH (npm global, pinned by
 `modules/dev/agent-cli-tools.nix`), never installed by the wrapper. Standalone
 web search is the native `web_search` tool: `modules/dev/hermes-agent.nix`
 installs `ddgs` into the Hermes venv and enables the keyless `web-ddgs` backend
-(`web-brave-free` is bundled but needs an API key, so it stays disabled). The
-one remaining wrapper the SKILL.md files still point at as a follow-up is
-`recover-page`; that SKILL.md documents the interim (no-wrapper) path.
+(`web-brave-free` is bundled but needs an API key, so it stays disabled).
+`recover-blocked-page` ships its `recover-page` wrapper too (a thin output
+reshaper over the byte-identical, vendored Hermes-core `recover_page.py`), so
+every skill in the set now has its CLI - there are no remaining follow-up
+wrappers.
 
 joy-brain's own `includedSkills` list (`modules/dev/joy-brain.nix`) is now
 empty. It stays as the single documented place to re-add a joy-brain skill if a
@@ -463,10 +502,42 @@ silently half-wire one. Declaring MCP servers in Nix (the upstream module's
 `mcpServers` option) is also out of scope; the browser/`chrome-devtools-axi`
 path is the CDP proxy, not an MCP server.
 
+## Deploying to a new machine
+
+`setup.sh` builds, activates, and applies chezmoi. Everything below is
+per-machine or out-of-band - it is not in the flake and `setup.sh` cannot
+do it for you:
+
+1. **Per-machine env** - `~/.config/dotfiles/env`. `setup.sh` writes it,
+   prompting only the keys the role needs (`env.example` documents them
+   all). On `wsl` it auto-detects `DOTFILES_WINDOWS_USER` over WSL interop.
+2. **agenix identity** - on `laptop`/`server`, generate the passphrase-less
+   `~/.ssh/id_agenix` keypair once and add its `.pub` to `secrets.nix`
+   (see "Secrets"). `wsl` uses the NixOS host key and needs nothing here.
+3. **SSH access to the private Gitea on `alps`** (`ssh://git@alps:2222`) -
+   `wsl` only: `modules/dev/joy-brain.nix` clones
+   `babbarc/joy-brain.git` from it at activation. Add this machine's key to
+   that Gitea account and confirm `ssh -p 2222 git@alps` works.
+4. **GPG + `pass`** - import the captain's GPG private key
+   (`gpg --import`) and clone the `pass` store to `~/.password-store`
+   (`setup.sh` prompts for its remote URL). Needed by `pass-git-sync` and,
+   on `wsl`, the `pass-access` / `web-login` Hermes skills.
+5. **`gh auth login`** - GitHub CLI auth for `gh` / `gh-axi`.
+6. **Hermes provider auth** (`wsl` only) - after the first rebuild, give
+   the Hermes agent its model-provider credentials (`hermes` config / the
+   provider's own login); the engine installs declaratively but ships no
+   keys.
+7. **Windows side** (`wsl` only, run from Windows, not WSL):
+   - a working Windows **Chrome** install for the CDP proxy
+     (`browser-proxy-windows` drives the captain's real Chrome);
+   - `cua-driver-bootstrap.ps1` once from Windows PowerShell to install
+     the Cua desktop driver (per-user, no admin) - see "Hermes desktop
+     control (Cua driver)".
+
 ## Validating changes
 
-Pure evaluation only - this is the extent of what's been proven so far,
-and what any change here should be re-checked against before merging:
+Pure evaluation is the extent of what an agent session here can itself
+verify, and what any change should be re-checked against before merging:
 
 ```sh
 nix build .#homeConfigurations.laptop.activationPackage --no-link
