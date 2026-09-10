@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# hermes-browse - thin launcher for the chrome-devtools-axi CLI, for the
+# `browse` skill. It does three things and nothing else:
+#
+#   1. Points chrome-devtools-axi at the persistent CDP proxy
+#      (CHROME_DEVTOOLS_AXI_BROWSER_URL=http://localhost:3333).
+#   2. Cold-start warm-up: the proxy launches the captain's Windows Chrome
+#      lazily and http://localhost:3333/json/version carries no
+#      webSocketDebuggerUrl until a CDP request wakes it. POST :3335/show to
+#      nudge it, then poll (bounded) until the debugger URL appears.
+#   3. Runs `chrome-devtools-axi "$@"`, retrying once if the first attempt
+#      cannot reach a CDP target (the bridge can briefly lag a just-woken
+#      Chrome).
+#
+# chrome-devtools-axi itself is an npm global pinned by
+# modules/dev/agent-cli-tools.nix (`npm install -g`). It is resolved from
+# PATH here on purpose - never a nix runtimeInput - and this wrapper never
+# installs it.
+
+browser_url="${CHROME_DEVTOOLS_AXI_BROWSER_URL:-http://localhost:3333}"
+control_url="${HERMES_BROWSE_CONTROL_URL:-http://localhost:3335}"
+export CHROME_DEVTOOLS_AXI_BROWSER_URL="$browser_url"
+
+if ! command -v chrome-devtools-axi >/dev/null 2>&1; then
+  echo "hermes-browse: chrome-devtools-axi not found on PATH (pinned by modules/dev/agent-cli-tools.nix via 'npm install -g')" >&2
+  exit 127
+fi
+
+# 1. Nudge the proxy Chrome awake (idempotent; instant when already running,
+# and a no-op if the control API is not reachable).
+curl -fsS -X POST "$control_url/show" -o /dev/null 2>/dev/null || true
+
+# 2. Wait (bounded) for the CDP endpoint to expose a webSocketDebuggerUrl -
+# chrome-devtools-axi needs one there to attach.
+ready=""
+attempt=0
+while [ "$attempt" -lt 30 ]; do
+  attempt=$((attempt + 1))
+  if curl -fsS "$browser_url/json/version" 2>/dev/null | grep -q webSocketDebuggerUrl; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+if [ -z "$ready" ]; then
+  echo "hermes-browse: no webSocketDebuggerUrl at $browser_url after 30s - running the command anyway so its own error is surfaced" >&2
+fi
+
+# 3. Run the real command, retrying once on a target-discovery failure.
+run_axi() {
+  status=0
+  output="$(chrome-devtools-axi "$@" 2>&1)" || status=$?
+}
+
+run_axi "$@"
+if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qiE \
+    'no( matching)? target|could not connect|econnrefused|websocketdebuggerurl|/json/(version|list)|browser ?url|bridge (did not|failed|timed out)|target closed'; then
+  echo "hermes-browse: first attempt did not reach a CDP target, retrying once" >&2
+  sleep 2
+  run_axi "$@"
+fi
+
+printf '%s\n' "$output"
+exit "$status"
