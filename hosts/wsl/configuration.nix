@@ -209,6 +209,12 @@ in
       # (joy-brain.nix `includedSkills` is now empty). wsl-only. See
       # modules/dev/hermes-skills.nix.
       ../../modules/dev/hermes-skills.nix
+      # Repo-vendored native Hermes plugins (wsl-only): the pass-enforcement
+      # pre_tool_call hook that structurally blocks `pass show <path>` / bare
+      # `pass <path>` in the terminal toolset - defense-in-depth for the
+      # pass-access / web-login secret-hygiene design. See
+      # modules/dev/hermes-plugins.nix.
+      ../../modules/dev/hermes-plugins.nix
     ];
   };
 }

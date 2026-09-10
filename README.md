@@ -395,6 +395,32 @@ explicit confirmation, and may pull credentials from `pass` for the task's
 logins but never echoes or logs a secret. The full brain (alps) is unaffected -
 it keeps joy-brain's own `SOUL.md`.
 
+### Plugins: `pass-enforcement` (wsl)
+
+`modules/dev/hermes-plugins.nix` vendors native Hermes plugins under
+`modules/dev/hermes-plugins/<name>/` and materializes them into
+`~/.hermes/plugins/`. The one plugin so far is **`pass-enforcement`**: a
+`pre_tool_call` hook that structurally blocks the secret-dumping `pass` forms -
+`pass show <path>` and a bare `pass <path>` (which `pass` treats as show),
+including the `-c`/`-q` variants and forms reached through a pipe, `sudo`/env
+prefix, or `bash -c` - in the `terminal` toolset. This is defense-in-depth for
+the `pass-access` / `web-login` design: even outside the sanctioned `pass-axi`
+and `hermes-web-login` paths, the operating agent cannot dump a stored secret
+to stdout / the transcript. The block message points the agent at
+`pass-axi inspect <path>` (metadata) or `hermes-web-login <path>` (into a form).
+It is deliberately precise - `pass-axi`/`pass-to`/`pass-env`,
+`pass otp|ls|find|grep|insert|edit|git|init`, `hermes-web-login`, `recover-page`
+and unrelated commands that merely contain "pass" all still run.
+
+Unlike skills, a plugin is opt-in: the activation also runs
+`hermes plugins enable pass-enforcement --no-allow-tool-override` (idempotent,
+warn-not-die). Because `joyBrainInstantiate` symlinks the whole
+`~/.hermes/plugins` dir into the joy-brain clone, the activation first converts
+that to a real directory (keeping the clone's plugins as child symlinks) so
+this repo's plugin can sit alongside them. Validate a plugin dir with
+`hermes plugins doctor modules/dev/hermes-plugins/pass-enforcement`. The alps
+full brain does not import this module.
+
 ### What is deliberately NOT vendored
 
 No joy-brain content is committed to this repo. The clone is fetched at
@@ -407,7 +433,9 @@ stay out of this repo (they live in the clone and are never copied here):
 - `memory/` (personal memory) and `memories/`
 - `contacts/` (private contact database)
 - `profiles/` (named profiles)
-- `plugins/` (e.g. the approval-gates plugin) - symlinked at activation, not vendored
+- joy-brain's own `plugins/` (e.g. the approval-gates plugin) - symlinked at
+  activation, not vendored (this repo vendors its own `pass-enforcement` plugin
+  alongside them - see "Plugins" above)
 - `bin/` and `scripts/` (joy's helpers, incl. `pass-to`/`pass-inspect`/`pass-env`
   and the `cdp-*.py` browser scripts) - symlinked, not vendored; the vendored
   `pass-access` / `web-login` skills still use the `~/.hermes/bin` helpers

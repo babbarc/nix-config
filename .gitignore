@@ -4,3 +4,7 @@ env
 
 # nix build output symlink in the repo root
 result
+
+# Python bytecode cache (e.g. from running a vendored Hermes plugin locally)
+__pycache__/
+*.pyc

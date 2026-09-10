@@ -1,0 +1,19 @@
+name: pass-enforcement
+version: "1.0.0"
+description: >-
+  pre_tool_call gate that structurally blocks the secret-dumping `pass` forms
+  (`pass show <path>` and a bare `pass <path>`, which `pass` treats as show) in
+  the terminal toolset. Defense-in-depth for the pass-access / web-login design:
+  the operating agent cannot dump a stored secret to stdout / the transcript
+  even outside the sanctioned `pass-axi` and `hermes-web-login` paths. The
+  config shell-hook mechanism only expresses block/modify, so a plugin hook is
+  the correct owner (block is supported). Precedent: the bundled approval-gates
+  plugin.
+author: "Fleet"
+provides_hooks:
+  - pre_tool_call
+tags:
+  - security
+  - credentials
+  - pass
+license: "MIT"

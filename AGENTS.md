@@ -401,6 +401,31 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   that wants to delegate to Hermes over MCP wires up that entry itself
   (`<harness> mcp add hermes -- hermes mcp serve` or equivalent).
 
+## Hermes pass-enforcement plugin (wsl host)
+
+`modules/dev/hermes-plugins.nix` (imported only by
+`hosts/wsl/configuration.nix`) vendors native Hermes plugins under
+`modules/dev/hermes-plugins/<name>/` (`plugin.yaml` + `__init__.py`,
+`provides_hooks: [pre_tool_call]` + a `register(ctx)`) and materializes them
+into `~/.hermes/plugins/`. Currently one: `pass-enforcement`, a `pre_tool_call`
+hook that structurally blocks the secret-dumping `pass` forms
+(`pass show <path>` and a bare `pass <path>`, incl. `-c`/`-q`, pipes,
+`sudo`/env/`bash -c` wrappers) in the `terminal` toolset - captain decision #8,
+DD7 cap.3 of the Hermes AXI-skills design. It deliberately does NOT touch
+`pass-axi`/`pass-to`/`pass-env`, `pass otp|ls|find|grep|insert|edit|git|init`,
+`hermes-web-login`, or unrelated commands containing "pass". Precedent for the
+hook shape: the bundled `approval-gates` plugin (`~/.hermes/plugins/` on the
+host, readable). Validate a plugin dir with `hermes plugins doctor <path>`;
+the runtime dispatch entry point is
+`hermes_cli.plugins._dispatch_pre_tool_call_hooks`.
+
+Sharp edge: `joyBrainInstantiate` symlinks the whole `~/.hermes/plugins` dir
+into the joy-brain clone, so the activation first converts that dir-symlink to
+a real directory (keeping the clone's plugins as child symlinks) before adding
+this repo's - idempotent, only while `plugins/` is still a symlink. Unlike
+skills, a plugin also needs `hermes plugins enable <name>` (activation does this
+idempotently with `--no-allow-tool-override`, warn-not-die).
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
