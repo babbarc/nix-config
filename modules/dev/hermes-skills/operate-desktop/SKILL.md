@@ -127,6 +127,15 @@ See **pass-access** and **web-login**.
 If you do not know how to do something in a Windows app, use **browse** to web
 search ("how to X in <app>") before poking at the UI blindly.
 
+**Persist what you learn.** When you work out how to drive an app, save it as
+your **own** new skill: `skill_manage(action="create", name="operate-<app>")`
+with the app's UI model, key surfaces, and keyboard shortcuts, then extend it
+with `skill_manage(action="patch")` on later tasks. Do **not** try to `patch`
+or `edit` this `operate-desktop` skill or the other pre-installed ones - they
+are read-only Nix-managed symlinks and `skill_manage` will report them "not
+found in active profile". Your new skill lands in `~/.hermes/skills/` and
+persists across rebuilds.
+
 ## Stop points
 
 Same as **browse**: purchases, sends, deletions, and account/system setting
