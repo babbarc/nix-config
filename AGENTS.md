@@ -420,6 +420,12 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
 
 - **SOULs.** `modules/dev/hermes-soul.md` -> `~/.hermes/SOUL.md` is the
   orchestrator (intake -> classify -> delegate via the board; never executes).
+  Creating an expert is a captain decision: when no existing expert fits, the
+  orchestrator proposes one to three candidate profiles (name, domain, scope)
+  with a recommendation and waits - it only runs `hermes-expert-new` after the
+  captain agrees on name and scope. Candidates are sized broadly (a whole
+  capability domain, not a task-specific sliver), and an existing broad expert
+  that plausibly covers the task is delegated to, not replaced by a narrow one.
   `modules/dev/hermes-expert-soul.md` ->
   `~/.hermes/templates/domain-expert-SOUL.md` is the domain-expert template,
   stamped per expert by `hermes-expert-new` (placeholders `{{EXPERT_NAME}}`,
