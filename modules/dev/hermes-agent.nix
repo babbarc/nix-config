@@ -21,6 +21,27 @@ let
   # fresh clone; a real host overrides it with its own value.
   windowsUser = dotfilesEnv.DOTFILES_WINDOWS_USER or "your-windows-user";
   cuaDriverExe = ''C:\Users\${windowsUser}\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe'';
+
+  # Declarative `mcp_servers.cua-driver` entry, deep-merged into
+  # ~/.hermes/config.yaml at activation by the hermesCuaDriver step below.
+  # Declarative is the ONLY non-interactive route: for stdio servers
+  # `hermes mcp add` is discovery-first and always ends in an interactive
+  # tool-selection prompt (hermes_cli/mcp_config.py in the pinned engine), and
+  # on EOF (no TTY) it prints "Cancelled." and returns WITHOUT saving while
+  # still exiting 0 - so an activation-time call can neither register from
+  # home-manager activation nor surface the failure through `||`. The entry
+  # shape (command/args/enabled) is exactly what `hermes mcp add` itself
+  # writes, so the engine loads it unchanged. `builtins.toJSON` renders the
+  # backslash/single-quote-heavy Windows path as a YAML flow sequence, which
+  # avoids hand-escaping it into a YAML scalar (a double-quoted YAML scalar
+  # would also mangle `\U` in `\Users`).
+  cuaDriverMcpEntry = pkgs.writeText "hermes-cua-driver-mcp.yaml" ''
+    mcp_servers:
+      cua-driver:
+        command: powershell.exe
+        args: ${builtins.toJSON [ "-NoProfile" "-Command" "& '${cuaDriverExe}' mcp" ]}
+        enabled: true
+  '';
 in
 {
   options.hermesAgent = {
@@ -190,21 +211,43 @@ in
     # GUI/desktop only - no shell/filesystem/registry (reachable directly from
     # WSL when needed). Runs after hermesHomeInstantiate so the seeded
     # ~/.hermes/config.yaml is the file that gets the new mcp_servers entry.
-    # Idempotent (skip when already present) and warn-not-die, matching the
-    # repo's other activation steps.
+    #
+    # Registration is a yq deep-merge of cuaDriverMcpEntry, NOT a call to
+    # `hermes mcp add` (see that binding's comment for why the CLI cannot work
+    # from activation). It is idempotent AND self-healing: when the on-disk
+    # entry already equals the declared one the merge is skipped entirely (the
+    # old `grep -q cua-driver` skip, made content-aware), and a missing or
+    # stale entry - e.g. after DOTFILES_WINDOWS_USER changes - is repaired on
+    # the next activation. Every failure mode warns loudly and actionably
+    # rather than exiting 0 silently.
     home.activation.hermesCuaDriver = lib.hm.dag.entryAfter [ "hermesHomeInstantiate" ] ''
-      PATH="$HOME/.local/bin:$PATH"
-      export HERMES_HOME=${lib.escapeShellArg hermesHome}
-      _cfg="${hermesHome}/config.yaml"
-      if ! command -v hermes >/dev/null 2>&1; then
-        echo "warning: hermes CLI not on PATH yet - cua-driver MCP registration skipped (rerun activation once hermes has installed)" >&2
-      elif [ -f "$_cfg" ] && grep -q 'cua-driver' "$_cfg" 2>/dev/null; then
-        : # already registered
+      _cfg=${lib.escapeShellArg "${hermesHome}/config.yaml"}
+      _merged="$_cfg.cua-driver.tmp"
+      _yq=${pkgs.yq-go}/bin/yq
+      if [ ${lib.escapeShellArg windowsUser} = "your-windows-user" ]; then
+        echo "warning: DOTFILES_WINDOWS_USER is not set in ~/.config/dotfiles/env (still the env.example placeholder), so the Cua desktop-driver path cannot be built - cua-driver MCP registration skipped and the Windows desktop tools stay unavailable; set the real Windows account name (setup.sh --role wsl detects it) and re-run activation" >&2
+      elif [ ! -f "$_cfg" ]; then
+        echo "warning: $_cfg does not exist yet - cua-driver MCP registration skipped; hermesHomeInstantiate seeds that file, so re-run activation once it succeeds" >&2
+      elif [ "$($_yq eval -o=json '.mcp_servers."cua-driver"' "$_cfg" 2>/dev/null)" \
+             = "$($_yq eval -o=json '.mcp_servers."cua-driver"' ${cuaDriverMcpEntry})" ]; then
+        : # already registered exactly - nothing to do
       else
-        $DRY_RUN_CMD hermes mcp add cua-driver \
-          --command powershell.exe \
-          --args -NoProfile -Command "& '${cuaDriverExe}' mcp" \
-          || echo "warning: could not register cua-driver as a Hermes MCP server - retry later (after cua-driver-bootstrap.ps1 on Windows) with: hermes mcp add cua-driver --command powershell.exe --args -NoProfile -Command \"& '${cuaDriverExe}' mcp\"" >&2
+        # Upsert just this entry (yq `*` merges maps recursively and takes the
+        # right-hand side on conflict), leaving every other mcp_servers key and
+        # every runtime-written config key untouched. `cmp` avoids rewriting
+        # the file when the merge happens to change nothing.
+        if ! $_yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+               "$_cfg" ${cuaDriverMcpEntry} > "$_merged"; then
+          echo "warning: could not write the merged cua-driver MCP entry into $_cfg (the yq merge or the temp-file write failed; see the error above) - the Windows desktop tools are NOT registered; fix the config and re-run activation" >&2
+          $DRY_RUN_CMD rm -f "$_merged"
+        elif cmp -s "$_cfg" "$_merged"; then
+          $DRY_RUN_CMD rm -f "$_merged"
+        elif $DRY_RUN_CMD mv "$_merged" "$_cfg"; then
+          :
+        else
+          echo "warning: could not write the merged cua-driver MCP entry to $_cfg - the Windows desktop tools are NOT registered; check permissions and re-run activation" >&2
+          $DRY_RUN_CMD rm -f "$_merged"
+        fi
       fi
     '';
   })

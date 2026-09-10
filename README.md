@@ -181,12 +181,14 @@ Two halves:
   WSL interop settings (`wsl.interop.register`, `wsl.wslConf.interop`, ...)
   so `powershell.exe` is reachable and sets `hermesAgent.cuaDriver = true`.
   `modules/dev/hermes-agent.nix` then registers the driver with Hermes at
-  activation:
-
-  ```sh
-  hermes mcp add cua-driver --command powershell.exe \
-    --args -NoProfile -Command "& '<cua-driver.exe path>' mcp"
-  ```
+  activation by `yq`-deep-merging the `mcp_servers.cua-driver` entry
+  (`command: powershell.exe`, the args list, `enabled: true`) into the seeded
+  `~/.hermes/config.yaml` - exactly the entry `hermes mcp add` would write.
+  It is deliberately not a call to `hermes mcp add`: that CLI is
+  discovery-first and always ends in an interactive tool-selection prompt for
+  stdio servers, and without a TTY (how activation runs) it prints
+  `Cancelled.`, returns without saving, and still exits 0 - so it could never
+  register on a fresh host and its failure was invisible.
 
   The `C:\Users\<user>` segment of that path is the one per-machine piece,
   so it is not hardcoded: it comes from `DOTFILES_WINDOWS_USER` in
@@ -196,10 +198,13 @@ Two halves:
   placeholder keeps pure evaluation working; a real host carries its actual
   value.
 
-  The registration is idempotent (skipped when `~/.hermes/config.yaml`
-  already lists `cua-driver`) and warn-not-die, matching the repo's other
-  activation steps. A fresh host is ready after a rebuild + one bootstrap
-  run, in either order.
+  The merge is idempotent and self-healing: when the on-disk entry already
+  matches the declared one activation writes nothing at all (the old "skip
+  when present" guard, made content-aware), and a missing or stale entry -
+  e.g. after `DOTFILES_WINDOWS_USER` changes - is repaired on the next
+  activation. If `DOTFILES_WINDOWS_USER` is still the placeholder, or the
+  merge fails, activation warns loudly instead of silently no-opping. A
+  fresh host is ready after a rebuild + one bootstrap run, in either order.
 
 On the `wsl` host the raw `cua-driver` MCP tools are the working desktop
 surface. Hermes's native `computer_use` wrapper cannot run there (it needs

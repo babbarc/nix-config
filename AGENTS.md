@@ -211,11 +211,14 @@ The `wsl` host's Hermes agent drives the Windows desktop through
 [cua-driver](https://cua.ai/cua-driver), registered as a Hermes MCP server.
 `modules/dev/hermes-agent.nix` (option `hermesAgent.cuaDriver`, enabled in
 `hosts/wsl/configuration.nix`; off on the alps `hermes` host, which has no
-Windows side) runs at activation, after `hermesHomeInstantiate` so it edits
-the seeded `~/.hermes/config.yaml`:
-
-    hermes mcp add cua-driver --command powershell.exe \
-      --args -NoProfile -Command "& 'C:\Users\<DOTFILES_WINDOWS_USER>\AppData\Local\Programs\Cua\cua-driver\bin\cua-driver.exe' mcp"
+Windows side) runs at activation after `hermesHomeInstantiate` and
+`yq`-deep-merges the `mcp_servers.cua-driver` entry into the seeded
+`~/.hermes/config.yaml` - it does NOT call `hermes mcp add`, which is
+interactive-only for stdio servers and silently no-ops (exit 0, `Cancelled.`)
+without a TTY, i.e. could never register from activation and never surfaced
+the failure. The entry (`command: powershell.exe`, the args list,
+`enabled: true`) matches what `hermes mcp add` writes, so the engine loads it
+unchanged.
 
 The `C:\Users\<user>` segment is not hardcoded: `hermes-agent.nix` reads
 `dotfilesEnv.DOTFILES_WINDOWS_USER` (default: the `env.example` placeholder,
@@ -223,8 +226,11 @@ which keeps pure eval working) and `setup.sh` detects the real Windows
 account on the `wsl` role via WSL interop (`powershell.exe`/`cmd.exe`, then
 a `/mnt/c/Users` scan) and writes it to `~/.config/dotfiles/env`.
 
-The registration is idempotent (skipped when `~/.hermes/config.yaml` already
-lists `cua-driver`) and warn-not-die. The Windows-side install (per-user, no
+The merge is idempotent and self-healing (content-aware skip when the entry
+already matches; repairs a missing/stale entry, e.g. after a
+`DOTFILES_WINDOWS_USER` change) and warn-not-die: a placeholder user, a
+missing config, or a failed write all warn loudly instead of silently doing
+nothing. The Windows-side install (per-user, no
 admin, autostart off) is `cua-driver-bootstrap.ps1` at the repo root, which
 invokes the
 official `https://cua.ai/driver/install.ps1` with `-NoAutoStart`. Hermes
