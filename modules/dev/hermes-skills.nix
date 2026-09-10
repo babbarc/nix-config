@@ -16,9 +16,7 @@ let
   #
   # This module materializes the skills and packages the CLIs they call
   # (`pass-axi` for pass-access, `hermes-web-login` for web-login, `hermes-browse`
-  # for browse). The remaining wrapper binary the SKILL.md files point at
-  # (recover-page) lands in a follow-up change; that SKILL.md still documents
-  # its interim path.
+  # for browse, `recover-page` for recover-blocked-page).
   skillsSrc = ./hermes-skills;
   skillNames = builtins.attrNames
     (lib.filterAttrs (_: t: t == "directory") (builtins.readDir skillsSrc));
@@ -96,6 +94,28 @@ let
     runtimeInputs = with pkgs; [ curl coreutils ];
     text = builtins.readFile ./hermes-skills/browse/scripts/hermes-browse;
   };
+
+  # recover-page: the `recover-blocked-page` skill's front end to the archive
+  # ladder. The recovery logic is the vendored, byte-identical Hermes-core
+  # script (recover_page.py, MIT) - re-sync it from a fresh Hermes install, do
+  # not fork it. `recover-page` only reshapes the output: a content-first
+  # no-arg / --help view, a one-line `ok: {route, provenance, snapshot_date,
+  # saved}` with snapshot-age disclosure, and a definitive `ALL_ROUTES_FAILED`
+  # line with the route trace on total failure.
+  #
+  # python3-only closure: recover_page.py is stdlib-only and the wrapper's own
+  # JSON reshape runs in the same python3. `JINA_API_KEY` is optional and unset
+  # here, so the script's route 3 is a no-op - fine. $RECOVER_PAGE_PY is pinned
+  # to the sibling script's store path so it resolves from a non-interactive
+  # `hermes` call, not just an interactive shell.
+  recoverPage = pkgs.writeShellApplication {
+    name = "recover-page";
+    runtimeInputs = with pkgs; [ python3 ];
+    text = ''
+      export RECOVER_PAGE_PY=${./hermes-skills/recover-blocked-page/scripts/recover_page.py}
+      ${builtins.readFile ./hermes-skills/recover-blocked-page/scripts/recover-page}
+    '';
+  };
 in
 {
   # Skill discovery needs NO trust/enable step: Hermes scans
@@ -118,9 +138,11 @@ in
       done
     '';
 
-  # `pass-axi` (pass-access), `hermes-web-login` (web-login) and `hermes-browse`
-  # (browse) on PATH via the nix profile so they resolve for the Hermes agent
-  # regardless of shell. `pass-axi` / `hermes-web-login` read the captain's real
-  # store at ~/.password-store; `hermes-browse` drives the CDP proxy Chrome.
-  home.packages = [ passAxi hermesWebLogin hermesBrowse ];
+  # `pass-axi` (pass-access), `hermes-web-login` (web-login), `hermes-browse`
+  # (browse) and `recover-page` (recover-blocked-page) on PATH via the nix
+  # profile so they resolve for the Hermes agent regardless of shell. `pass-axi`
+  # / `hermes-web-login` read the captain's real store at ~/.password-store;
+  # `hermes-browse` drives the CDP proxy Chrome; `recover-page` fetches archive
+  # copies over plain HTTP.
+  home.packages = [ passAxi hermesWebLogin hermesBrowse recoverPage ];
 }
