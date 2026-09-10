@@ -1,8 +1,8 @@
 ---
 name: operate-desktop
-description: "Operate the Windows desktop background-first: prefer the `computer_use(action=...)` wrapper (it carries the verify -> escalate ladder and the safety hard-rules), with the raw `cua-driver` MCP tools as the fallback. Capture the accessibility tree first, click elements by index not pixels, verify each action against the returned verdict, expect popups and wizards, and never type a secret. Use for native Windows apps (Lightroom, installers, settings panes, file dialogs)."
-annotation: "Windows desktop operation via computer_use / cua-driver (guide only)"
-version: 2.0.0
+description: "Operate the Windows desktop background-first via the raw `cua-driver` MCP tools - on this WSL host they are the working desktop surface; the native `computer_use` wrapper cannot run here (no libX11). Capture the accessibility tree first, click elements by index not pixels, verify each action against the returned verdict, expect popups and wizards, and never type a secret. Use for native Windows apps (Lightroom, installers, settings panes, file dialogs)."
+annotation: "Windows desktop operation via cua-driver MCP tools (guide only)"
+version: 2.1.0
 user-invocable: false
 metadata:
   hermes:
@@ -18,21 +18,28 @@ This is a **guide**; the capability is already wired, there is no CLI wrapper.
 
 ## Which tool surface to use
 
-Both are live on this host (captain decision 2026-09-09 #7 keeps both enabled):
+On this WSL host the **raw `cua-driver` MCP tools are the working desktop
+surface.** They drive the Windows-side `cua-driver` over `powershell.exe`
+interop, which is the only desktop path that functions here.
 
-- **`computer_use(action=...)`** - Hermes's native wrapper. **Prefer this.** It
-  is the surface that carries the structured verify -> escalate verdict fields
-  and the safety hard-rules below. Actions: `capture`, `click`, `double_click`,
-  `right_click`, `middle_click`, `drag`, `scroll`, `type`, `key`, `wait`,
-  `list_apps`, `focus_app`. Element-targeting actions also take
-  `capture_after=True`, `modifiers=[...]`, and `delivery_mode`.
-- **Raw `cua-driver` MCP tools** (`get_window_state`, `get_desktop_state`,
-  `list_apps`, `list_windows`, `click`, `type_text`, `press_key`, `hotkey`,
-  `scroll`, `drag`, `set_value`, `zoom`, `launch_app`, `bring_to_front`,
-  `invoke_menu`, `verify_state`, `clipboard_read` / `clipboard_write`) -
-  reached over `powershell.exe` interop. **Fallback only**, for the few
-  operations the wrapper does not expose (e.g. `invoke_menu` by exact path,
-  `zoom`). Do not mix the two mid-task.
+The native `computer_use(action=...)` wrapper is **unavailable on this host**:
+its Linux-side driver fails to load `libX11.so.6` (WSL ships no X11), so a
+`computer_use` call errors out before it ever reaches the Windows side. Both
+toolsets stay enabled (captain decision 2026-09-09 #7 keeps both on) - this is
+"which to reach for", not "disable one" - but on this host you reach for the
+`cua-driver` tools. The wrapper carries the same verdict fields and the same
+escalation ladder described below and is the better surface on any host where
+it does load; here it does not.
+
+Raw `cua-driver` MCP tools:
+
+- **Capture / inspect**: `get_window_state`, `get_desktop_state`, `list_apps`,
+  `list_windows`.
+- **Input**: `click`, `type_text`, `set_value`, `press_key`, `hotkey`,
+  `scroll`, `drag`, `zoom`.
+- **Window / app**: `launch_app`, `bring_to_front`, `invoke_menu`.
+- **Verify**: `verify_state`.
+- **Clipboard**: `clipboard_read`, `clipboard_write`.
 
 `cua-driver` is GUI/desktop only - no shell, filesystem, or registry. For
 those, use the terminal directly: `/mnt/c` and `powershell.exe` are reachable
@@ -42,30 +49,28 @@ desktop driver.
 ## The workflow: capture -> click by index -> verify
 
 1. **Capture first.** Almost every task starts with
-   `computer_use(action="capture", mode="som", app="<the app>")`. `som`
-   returns a screenshot with numbered overlays plus an AX-tree index; `ax`
-   returns the tree with no image (cheaper - use it when the pixels do not
-   matter); `vision` returns a plain screenshot. Scope the capture to an app
-   to keep it small and to avoid leaking the captain's other windows.
+   `get_window_state(app="<the app>")` - scoped to one app it keeps the tree
+   small and avoids leaking the captain's other windows - or `get_desktop_state`
+   for a whole-desktop view. These return the accessibility tree with element
+   indices; ask for the screenshot variant only when the pixels actually matter.
 2. **Click by element index**, not coordinates, whenever the element is in the
-   tree - `computer_use(action="click", element=7)`. Indices survive layout
-   shifts and are far more reliable. `coordinate=[x,y]` is the fallback.
-   SOM indices are only valid until the next capture; re-capture before
-   clicking if state may have changed.
-3. **Verify, then move on.** After any state-changing action, re-capture (or
-   pass `capture_after=True`) and read the returned verdict before the next
-   step. Never fire a sequence of blind clicks.
+   tree - `click(element=7)`. Indices survive layout shifts and are far more
+   reliable; coordinates are the fallback. Indices are only valid until the
+   next capture; re-capture before clicking if state may have changed.
+3. **Verify, then move on.** After any state-changing action, call
+   `verify_state` (or re-capture with `get_window_state`) and read the verdict
+   before the next step. Never fire a sequence of blind clicks.
 4. **Expect the mess.** Popups, modal dialogs, permission prompts, UAC,
    installer/wizard pages, slow loads - handle each deliberately.
-5. **Focus** with `focus_app` (routes input without raising). You rarely need
-   it - passing `app=...` to `capture` / `click` / `type` targets that app's
-   frontmost window.
+5. **Raise** with `bring_to_front` only when input is not landing (see the
+   ladder). Most captures and clicks take an `app=` target and do not need the
+   window raised.
 
 ## The verify -> escalate ladder (background-first)
 
 Input is delivered in the background by default - that is the first rung, not
-the only one. Every input action returns a structured verdict; read it and
-**climb only when the driver tells you to**.
+the only one. Every input action (and `verify_state`) returns a structured
+verdict; read it and **climb only when the driver tells you to**.
 
 Returned fields (present when the driver supports them):
 
@@ -82,16 +87,18 @@ Walk it in order:
 1. **Element, background (default).** `click(element=N)`. `effect:"confirmed"`
    -> done. Do not repeat a confirmed action.
 2. **Fresh verification.** `effect:"unverifiable"` -> inspect a fresh capture
-   before any retry, even when `escalation.recommended` is set.
+   (`get_window_state`) before any retry, even when `escalation.recommended`
+   is set.
 3. **Pixel, background.** After `effect:"suspected_noop"`, a refusal that
    recommends `"px"`, or a capture that returned no elements, click by
    `coordinate=[x,y]` instead of `element`.
 4. **Foreground.** After `effect:"suspected_noop"`, `code:"background_unavailable"`,
-   or a verified pixel no-op, re-issue the *same* action with
-   `delivery_mode="foreground"`. This briefly raises the window and restores
-   focus after, so it needs its own approval and is only appropriate when the
-   captain is not actively working. Classic cases: Electron/Chromium consent
-   dialogs, DirectInput games, raw-input canvases.
+   or a verified pixel no-op, `bring_to_front` the target window and re-issue
+   the *same* action (or pass the driver's foreground `delivery_mode` where it
+   exposes one). This briefly raises the window and restores focus after, so it
+   needs its own approval and is only appropriate when the captain is not
+   actively working. Classic cases: Electron/Chromium consent dialogs,
+   DirectInput games, raw-input canvases.
 
 Escalate as a **reaction to a returned signal, never as a prediction** from
 the app being Electron/Chromium/GTK. Different controls in the same app
@@ -103,13 +110,14 @@ instead.
 
 ## Credentials on the desktop
 
-The `pass` rules still apply. The wrapper's `type` / `key` and the raw
-`type_text` / `set_value` all take the text as a **parameter**, so typing a
-secret that way leaks it into the tool-call record. Do not. Instead:
+The `pass` rules still apply. The raw `type_text` / `set_value` (and any
+wrapper `type` / `key` on a host where `computer_use` runs) all take the text
+as a **parameter**, so typing a secret that way leaks it into the tool-call
+record. Do not. Instead:
 
 - `pass -c <path>` copies the secret to the clipboard for ~45s; paste it with
-  `key` / `hotkey Ctrl V` (or `clipboard_write` fed from a piped read), then
-  clear the clipboard.
+  `hotkey Ctrl V` (or `clipboard_write` fed from a piped read), then clear the
+  clipboard.
 - Or bounce to firstmate if that is not workable.
 
 See **pass-access** and **web-login**.
