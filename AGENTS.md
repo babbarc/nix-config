@@ -245,6 +245,27 @@ at `/etc/profiles/per-user/<user>/bin/fish` (`programs.fish.enable` +
 `useUserPackages`), which herdr's chezmoi `default_shell` points at, and the
 integration hooks are POSIX `sh` + `python3` so they are shell-agnostic.
 
+## Harness auto-compaction windows
+
+Pi and Claude Code are pinned to auto-compact at the model's *real* context
+window instead of an early default ("correct the window" approach).
+
+- **Pi** (`modules/dev/pi.nix`): `~/.pi/agent/models.json` is a read-only
+  home-manager symlink declaring `contextWindow`/`maxTokens` (and the
+  captain's pre-existing `cost` overrides) under
+  `providers.deepseek.modelOverrides` for the three active deepseek v4
+  models (1M / 384K - verify with `pi --list-models deepseek`). Pi compacts
+  off the resolved model's `contextWindow`. models.json has no runtime
+  writer (unlike settings.json), so a symlink is safe.
+- **Claude Code** (`modules/dev/claude-code.nix`): a `claudeSettings`
+  activation script jq-merges `autoCompactWindow: 1000000` into
+  `~/.claude/settings.json` (same merge pattern the old pi settings.json
+  used; the file also holds runtime-written keys and the herdr SessionStart
+  hook, so it is not symlinked). Claude's effective threshold is
+  `min(autoCompactWindow, model real context window)`, so 1M (the max of
+  the accepted 100k-1M range) collapses to each model's own window. Verified
+  against CLI 2.1.267.
+
 ## Windows Chrome CDP proxy (wsl host)
 
 `modules/dev/browser-proxy-windows.nix` (imported only by
