@@ -14,10 +14,11 @@ let
   # the alps full brain (hosts/hermes/home.nix), which keeps joy-brain's own
   # skill tree.
   #
-  # This module materializes the skills and packages the CLIs they call. The
-  # remaining wrapper binaries the SKILL.md files point at (hermes-web-login,
-  # recover-page) and the chrome-devtools-axi proxy env/warm-up wrapper land in
-  # follow-up changes; those SKILL.md files still document their interim path.
+  # This module materializes the skills and packages the CLIs they call
+  # (`pass-axi` for pass-access, `hermes-web-login` for web-login). The remaining
+  # wrapper binary the SKILL.md files point at (recover-page) and the
+  # chrome-devtools-axi proxy env/warm-up wrapper land in follow-up changes;
+  # those SKILL.md files still document their interim path.
   skillsSrc = ./hermes-skills;
   skillNames = builtins.attrNames
     (lib.filterAttrs (_: t: t == "directory") (builtins.readDir skillsSrc));
@@ -47,6 +48,35 @@ let
     ];
     text = builtins.readFile ./hermes-skills/pass-access/scripts/pass-axi;
   };
+
+  # hermes-web-login: the zero-exposure credential / OTP entry path for the
+  # `web-login` skill - the only sanctioned way for a secret to reach a web
+  # page. The secret is read INSIDE the script from `pass` (via the
+  # ~/.hermes/bin/pass-to helper) and pushed GPG -> pipe -> python memory -> CDP
+  # `Runtime.evaluate` -> DOM; it is never an argument, never printed, never on
+  # stdout, never in a tool-call record. Full surface: web-login/SKILL.md.
+  #
+  # The logic is the vendored python script; writeShellApplication just execs it
+  # under a pinned runtime closure so it resolves from a non-interactive
+  # `hermes` call, not only an interactive shell: python3 + websockets for the
+  # CDP client, pass (with pass-otp) + gnupg for the internal `pass show` /
+  # `pass otp`, bash + coreutils so the ~/.hermes/bin/pass-to helper shebang and
+  # its `head -n 1` resolve.
+  hermesWebLoginPython = pkgs.python3.withPackages (ps: [ ps.websockets ]);
+  hermesWebLogin = pkgs.writeShellApplication {
+    name = "hermes-web-login";
+    runtimeInputs = with pkgs; [
+      hermesWebLoginPython
+      (pass.withExtensions (exts: [ exts.pass-otp ]))
+      gnupg
+      bash
+      coreutils
+    ];
+    text = ''
+      exec ${hermesWebLoginPython}/bin/python3 \
+        ${./hermes-skills/web-login/scripts/hermes-web-login} "$@"
+    '';
+  };
 in
 {
   # Skill discovery needs NO trust/enable step: Hermes scans
@@ -69,9 +99,8 @@ in
       done
     '';
 
-  # `pass-axi` on PATH for the `pass-access` skill. fish.nix already prepends
-  # ~/.local/bin; this puts the CLI in the nix profile so it resolves for the
-  # Hermes agent regardless of shell. The `pass-access` skill reads from the
-  # captain's real store at ~/.password-store.
-  home.packages = [ passAxi ];
+  # `pass-axi` (pass-access) and `hermes-web-login` (web-login) on PATH via the
+  # nix profile so they resolve for the Hermes agent regardless of shell. Both
+  # read the captain's real store at ~/.password-store.
+  home.packages = [ passAxi hermesWebLogin ];
 }
