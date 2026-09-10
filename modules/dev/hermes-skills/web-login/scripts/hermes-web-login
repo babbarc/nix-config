@@ -22,8 +22,14 @@ Usage:
                          before submit.
 - --selector <css>       target a specific field (get the real ref from
                          `browse snapshot`). Works in both modes.
-- --submit               after filling, call form.requestSubmit() and report
-                         the resulting URL.
+- --submit               after filling, submit the login and report the
+                         resulting URL. Uses the owning <form>'s
+                         requestSubmit() when there is one; when the field
+                         has no <form> (JS-only logins), locates and clicks
+                         the page's submit control instead. `submitted`
+                         reflects what actually happened and `navigated` says
+                         whether the URL changed; if no submit control can be
+                         found, `submitted:false` with a help[] hint.
 
 CDP target: auto-discovered from http://localhost:3333/json/version (the
 browser-proxy-windows.service contract). Attaches to the best page target,
@@ -31,6 +37,7 @@ preferring a login / signin / auth URL.
 
 Results (no secret):
     ok: {selector: "...", filled_len: 14, target: "accounts.google.com"}
+    ok: {..., submitted: true, url: "...", navigated: true}          (--submit)
     error: PASS_ENTRY_NOT_FOUND | SELECTOR_NOT_FOUND | NO_PAGE_TARGET
          | CDP_UNREACHABLE | PASS_HELPER_MISSING | PASS_READ_FAILED
          | OTP_UNAVAILABLE | FILL_NOT_VERIFIED
@@ -255,15 +262,58 @@ def _verify_expr(selector):
 
 
 def _submit_expr(selector):
+    """Submit the login. Prefers the owning <form>; when the filled field has
+    no form (JS-only logins, e.g. an onclick="validate()" button), locate and
+    click the page's submit control instead. Returns one of:
+
+        SELECTOR_NOT_FOUND | SUBMITTED:form | CLICKED:submit | NO_SUBMIT_CONTROL
+    """
     sel = json.dumps(selector)
     return (
         "(function(){"
         f"var el=document.querySelector({sel});"
         "if(!el){return 'SELECTOR_NOT_FOUND';}"
         "var f=el.form;"
-        "if(!f){return 'NO_FORM';}"
+        "if(f){"
         "if(f.requestSubmit){f.requestSubmit();}else{f.submit();}"
-        "return 'SUBMITTED';"
+        "return 'SUBMITTED:form';"
+        "}"
+        # No <form> - fall back to the page's submit control.
+        "function vis(n){"
+        "if(!n||!n.getBoundingClientRect){return false;}"
+        "var r=n.getBoundingClientRect();"
+        "if(r.width<=0||r.height<=0){return false;}"
+        "var s=window.getComputedStyle(n);"
+        "return s&&s.visibility!=='hidden'&&s.display!=='none';"
+        "}"
+        "var RX=/^\\s*(log\\s?in|sign\\s?in|sign\\s?on|submit|continue|next|"
+        "proceed|go|enter)\\s*$/i;"
+        "function findIn(root){"
+        "if(!root||!root.querySelectorAll){return null;}"
+        "var strict=root.querySelectorAll("
+        "'button[type=submit],input[type=submit],input[type=image]');"
+        "for(var i=0;i<strict.length;i++){if(vis(strict[i])){return strict[i];}}"
+        "var cand=root.querySelectorAll("
+        "'button,input[type=button],a[role=button],[role=button]');"
+        "for(var j=0;j<cand.length;j++){"
+        "var c=cand[j];"
+        "if(!vis(c)){continue;}"
+        "var t=(c.value||c.textContent||c.getAttribute('aria-label')||'')"
+        ".trim();"
+        "if(RX.test(t)){return c;}"
+        "}"
+        "return null;"
+        "}"
+        "var ctrl=null,scope=el.parentElement;"
+        "for(var d=0;d<6&&scope;d++){"
+        "ctrl=findIn(scope);"
+        "if(ctrl){break;}"
+        "scope=scope.parentElement;"
+        "}"
+        "if(!ctrl){ctrl=findIn(document);}"
+        "if(!ctrl){return 'NO_SUBMIT_CONTROL';}"
+        "ctrl.click();"
+        "return 'CLICKED:submit';"
         "})()"
     )
 
@@ -427,23 +477,60 @@ async def _cdp_session(connect, ws_url, selector, secret, submit):
 
         # 5. optional submit
         if submit:
+            url_before = None
+            try:
+                before_id = await send(
+                    "Runtime.evaluate",
+                    {"expression": "location.href", "returnByValue": True},
+                    session_id,
+                )
+                url_before = eval_value(await response(before_id, timeout=5))
+            except OpError:
+                url_before = None
+
             submit_id = await send(
                 "Runtime.evaluate",
                 {"expression": _submit_expr(selector), "returnByValue": True},
                 session_id,
             )
             submit_val = eval_value(await response(submit_id))
-            out["submitted"] = submit_val == "SUBMITTED"
+
+            # SUBMITTED:form  -> the owning <form> was submitted
+            # CLICKED:submit  -> no form; the page's submit control was clicked
+            # NO_SUBMIT_CONTROL -> nothing to activate; stay honest
+            acted = isinstance(submit_val, str) and (
+                submit_val.startswith("SUBMITTED:")
+                or submit_val.startswith("CLICKED:")
+            )
+            out["submitted"] = acted
+
             await asyncio.sleep(1.0)
+            navigating = False
             try:
                 href_id = await send(
                     "Runtime.evaluate",
                     {"expression": "location.href", "returnByValue": True},
                     session_id,
                 )
-                out["url"] = eval_value(await response(href_id, timeout=5))
+                url_after = eval_value(await response(href_id, timeout=5))
             except OpError:
-                out["url"] = "(navigation in progress)"
+                # location.href stalled - the page is very likely mid-navigation
+                url_after = "(navigation in progress)"
+                navigating = True
+            out["url"] = url_after
+
+            if acted:
+                out["navigated"] = navigating or (
+                    url_before is not None
+                    and url_after != url_before
+                )
+            else:
+                # submit_val == "NO_SUBMIT_CONTROL" (or an unexpected token)
+                out["navigated"] = False
+                out["help"] = [
+                    "no submit control found near the field - "
+                    "run `browse snapshot` and click the submit control"
+                ]
 
         return out
 
@@ -465,7 +552,13 @@ def _fmt_obj(obj):
 
 
 def print_ok(obj):
+    obj = dict(obj)
+    help_lines = obj.pop("help", None)
     print(f"ok: {_fmt_obj(obj)}")
+    if help_lines:
+        print("help[]:", file=sys.stderr)
+        for line in help_lines:
+            print(f"  {line}", file=sys.stderr)
 
 
 def print_error(code, help_lines):

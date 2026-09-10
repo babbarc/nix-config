@@ -2,7 +2,7 @@
 name: web-login
 description: "Fill a username / password / OTP into a browser login form with the secret read from `pass` internally - never through a tool parameter, a shell argument, or the browser command surface. Use for any web login or credential/OTP field. Owns the entire login surface; there is no other sanctioned path for typing a secret into a page."
 annotation: "Zero-exposure credential entry into a web login form"
-version: 1.0.0
+version: 1.1.0
 user-invocable: false
 metadata:
   hermes:
@@ -55,10 +55,16 @@ hermes-web-login --help
 - `otp <pass-path>` runs `pass otp <pass-path>` the same way and fills the OTP
   field (default selector targets a one-time-code / numeric input). TOTP is a
   30s window - generate it right before submit.
-- `--submit` calls `form.requestSubmit()` after the fill and reports the
-  resulting URL.
-- Structured result, no secret: `ok: {selector, filled_len, target}` where
-  `filled_len` is the length only. Errors: `PASS_ENTRY_NOT_FOUND`,
+- `--submit` submits the login after the fill and reports the resulting URL.
+  It calls the owning `<form>`'s `requestSubmit()` when there is one; when the
+  filled field has no `<form>` (JS-only logins - e.g. an `onclick="validate()"`
+  button), it locates and clicks the page's submit control instead. The result
+  adds `submitted` (what actually happened) and `navigated` (did the URL
+  change); if no submit control can be found it reports `submitted: false`
+  with a one-line `help[]` hint to snapshot and click it by hand.
+- Structured result, no secret: `ok: {selector, filled_len, target}` (plus
+  `submitted, url, navigated` with `--submit`) where `filled_len` is the
+  length only. Errors: `PASS_ENTRY_NOT_FOUND`,
   `SELECTOR_NOT_FOUND`, `NO_PAGE_TARGET`, `CDP_UNREACHABLE` (plus
   `PASS_HELPER_MISSING`, `PASS_READ_FAILED`, `OTP_UNAVAILABLE`,
   `FILL_NOT_VERIFIED`). Exit 0 filled-and-verified, 1 operational error, 2 bad
