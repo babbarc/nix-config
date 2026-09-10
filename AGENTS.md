@@ -445,7 +445,10 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
   there on this host, plus `~/.local/bin` for the CLI). systemd's INVOCATION_ID
   (or `--external-supervisor`) satisfies the engine's supervised-gateway
   conflict guard, so no `--force` is needed. Without the unit, ready cards never
-  spawn workers.
+  spawn workers. The same module also runs `hermesKanbanInit` (`hermes kanban
+  init`), so a fresh host gets `~/.hermes/kanban.db` - the board the dispatcher
+  drains; it is idempotent, CLI-guarded, and warn-not-die like the other Hermes
+  activations.
 - **`hermes-expert-new`** (`modules/dev/hermes-expert-new.nix` packaging
   `modules/dev/hermes-expert-new`, runtimeInputs python3): the deterministic
   profile provisioning flow - clone, drop `toolsets`/`platform_toolsets`, set
