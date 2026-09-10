@@ -450,7 +450,12 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
   copy + enable `pass-enforcement` (`--clone` never copies plugins). Credential
   skills are opt-in via `--with-credentials`. Refuses an existing profile
   without `--force` (which deletes and recreates). Run it from the
-  orchestrator's shell: `--clone` copies the ACTIVE profile.
+  orchestrator's shell: `--clone` copies the ACTIVE profile. It stamps SOUL
+  via a temp file + `os.replace` (`rename`), never an in-place write:
+  `--clone`'s `shutil.copy2` follows the Nix-store `SOUL.md` symlink and
+  preserves its 0444 mode, so writing in place fails EACCES, while rename
+  atomically replaces the read-only file/link without touching the store
+  target (a crash there previously aborted the helper before the plugin copy).
 - **Experts are self-contained; no shared AXI registry.** An expert's built
   AXIs live in its own writable area (profile `skills/`, `plugins/`, or a
   writable PATH dir such as `~/.local/bin` for a CLI) and are not shared across

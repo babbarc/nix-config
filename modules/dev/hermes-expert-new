@@ -12,11 +12,12 @@
 #      the expert keeps the full default tool surface (browser, desktop, ...)
 #   3. point `skills.external_dirs` at the shared Nix-managed base skills in
 #      the DEFAULT home, so base-skill updates follow every rebuild
-#   4. reset the cloned local skills dir to empty (domain-only from here on)
-#      and clear the cloned orchestrator memories
-#   5. disable the credential skills unless the domain needs authentication
+#   4. disable the credential skills unless the domain needs authentication
 #      (least privilege, captain decision #6)
-#   6. write SOUL.md from the repo template
+#   5. reset the cloned local skills dir to empty (domain-only from here on)
+#      and clear the cloned orchestrator memories
+#   6. write SOUL.md from the repo template, replacing the read-only clone
+#      (rename-over, so a Nix-store symlink source can never be clobbered)
 #   7. copy the pass-enforcement plugin in and enable it (plugins are NOT
 #      copied by --clone)
 #
@@ -148,7 +149,7 @@ hermes -p "$name" config unset platform_toolsets 2>/dev/null || true
 #    a base skill's store path changes.
 hermes -p "$name" config set skills.external_dirs "[\"$base/skills\"]"
 
-# 5. Least privilege on credentials: pass-access / web-login are granted only
+# 4. Least privilege on credentials: pass-access / web-login are granted only
 #    when the domain needs authenticated sessions. `skills.disabled` is the
 #    per-profile gate (agent/skill_utils.get_disabled_skill_names).
 if [ "$with_credentials" -eq 1 ]; then
@@ -161,7 +162,7 @@ else
   hermes -p "$name" config set --force skills.disabled '["pass-access", "web-login"]'
 fi
 
-# 4. Reset the local skills dir to domain-only and clear the cloned
+# 5. Reset the local skills dir to domain-only and clear the cloned
 #    orchestrator memory. The whole point of external_dirs is that the local
 #    dir holds only what this expert learns.
 rm -rf "$profile_dir/skills"
@@ -169,9 +170,21 @@ mkdir -p "$profile_dir/skills"
 rm -f "$profile_dir/memories/MEMORY.md" "$profile_dir/memories/USER.md"
 
 # 6. Stamp the expert SOUL from the repo template.
+#
+# `hermes profile create --clone` copies the default profile's SOUL.md with
+# shutil.copy2, which follows the symlink and preserves the source's mode
+# bits. Here the default ~/.hermes/SOUL.md is a symlink into the read-only
+# Nix store, so the clone is an unwritable file (mode 0444): writing it in
+# place fails with EACCES, and writing through it while it is still a symlink
+# would try to clobber the store. Stamp via a sibling temp file + rename(2):
+# rename replaces a read-only file and a symlink itself (never its target),
+# in one atomic step, leaving a plain owner-writable SOUL.md the expert can
+# evolve. The template placeholders are substituted before the write.
 python3 - "$template" "$profile_dir/SOUL.md" "$name" "$domain" "$scope" <<'PY'
+import os
 import pathlib
 import sys
+import tempfile
 
 template, out, name, domain, scope = sys.argv[1:6]
 text = pathlib.Path(template).read_text(encoding="utf-8")
@@ -183,7 +196,17 @@ for token, value in (
     text = text.replace(token, value)
 if "{{" in text:
     sys.exit(f"unsubstituted placeholder remains in {template}")
-pathlib.Path(out).write_text(text, encoding="utf-8")
+
+out_path = pathlib.Path(out)
+fd, tmp_name = tempfile.mkstemp(dir=out_path.parent, prefix=".SOUL.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.chmod(tmp_name, 0o644)
+    os.replace(tmp_name, out_path)
+except BaseException:
+    pathlib.Path(tmp_name).unlink(missing_ok=True)
+    raise
 PY
 
 # 7. --clone does NOT copy plugins; the secret-safety hook must come along.
