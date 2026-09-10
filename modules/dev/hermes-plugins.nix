@@ -18,6 +18,11 @@ let
   pluginsSrc = ./hermes-plugins;
   pluginNames = builtins.attrNames
     (lib.filterAttrs (_: t: t == "directory") (builtins.readDir pluginsSrc));
+
+  # Plugins the default (orchestrator) profile must load. pass-enforcement is
+  # the secret-dumping gate; guardrails injects the fleet default
+  # max_runtime_seconds into every unbounded kanban_create.
+  enabledPlugins = [ "pass-enforcement" "guardrails" ];
 in
 {
   # Hermes discovers directory plugins under {HERMES_HOME}/plugins/<name>/
@@ -51,16 +56,19 @@ in
         $DRY_RUN_CMD ln -sfn "${pluginsSrc}/$_p" "$_home/plugins/$_p"
       done
 
-      # Enable pass-enforcement idempotently. --no-allow-tool-override: the
-      # plugin only registers a pre_tool_call hook, it never replaces a
-      # built-in tool, so the privileged tool-override grant is declined (this
-      # also skips the interactive consent prompt). Warn-not-die and guarded on
-      # the hermes CLI existing - same posture as the other hermes activations.
+      # Enable the repo plugins idempotently. --no-allow-tool-override: neither
+      # plugin replaces a built-in tool - pass-enforcement and guardrails only
+      # register a pre_tool_call hook - so the privileged tool-override grant is
+      # declined (this also skips the interactive consent prompt).
+      # Warn-not-die and guarded on the hermes CLI existing - same posture as the
+      # other hermes activations.
       if ! command -v hermes >/dev/null 2>&1; then
-        echo "warning: hermes CLI not on PATH yet - pass-enforcement enable skipped (rerun activation once hermes has installed)" >&2
+        echo "warning: hermes CLI not on PATH yet - plugin enable skipped (rerun activation once hermes has installed)" >&2
       else
-        $DRY_RUN_CMD hermes plugins enable pass-enforcement --no-allow-tool-override \
-          || echo "warning: could not enable the pass-enforcement plugin - retry later with: hermes plugins enable pass-enforcement --no-allow-tool-override" >&2
+        for _p in ${lib.escapeShellArgs enabledPlugins}; do
+          $DRY_RUN_CMD hermes plugins enable "$_p" --no-allow-tool-override \
+            || echo "warning: could not enable the $_p plugin - retry later with: hermes plugins enable $_p --no-allow-tool-override" >&2
+        done
       fi
     '';
 }

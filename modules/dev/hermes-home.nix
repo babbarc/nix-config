@@ -11,10 +11,15 @@
 #                           the orchestrator override (browser.cdp_url, the
 #                           kanban toolset gate, kanban concurrency) so Hermes's
 #                           runtime edits to every OTHER key survive
-#   ~/.hermes/SOUL.md       -> modules/dev/hermes-soul.md (re-pinned each run)
+#   ~/.hermes/SOUL.md       -> hermes-soul.md rendered through the
+#                           hermesGuardrails tunables (re-pinned each run)
 #   ~/.hermes/templates/domain-expert-SOUL.md
-#                           -> modules/dev/hermes-expert-soul.md; the template
-#                           hermes-expert-new stamps onto each new expert
+#                           -> hermes-expert-soul.md rendered the same way; the
+#                           template hermes-expert-new stamps onto each new
+#                           expert
+#   ~/.hermes/guardrails.yaml
+#                           -> the guardrail tunables the helper CLIs read
+#                           (modules/dev/hermes-guardrails.nix)
 #   ~/.hermes/bin/pass-*    -> modules/dev/hermes-bin/ (vendored byte-for-byte
 #                           from the clone's scripts/; the pass-access and
 #                           web-login CLIs call these by absolute path)
@@ -141,13 +146,16 @@ in
 
     # Default-profile SOUL.md: the captain-facing orchestrator role tracked in
     # this repo (intake -> classify -> delegate to a domain expert; never
-    # executes), re-pinned on every activation.
-    $DRY_RUN_CMD ln -sfn ${./hermes-soul.md} "$_home/SOUL.md"
+    # executes), re-pinned on every activation. Rendered through the
+    # hermesGuardrails tunables by modules/dev/hermes-guardrails.nix, so the
+    # live-app / budget / heartbeat / loop-bound numbers in the prose come from
+    # one place.
+    $DRY_RUN_CMD ln -sfn ${config.hermesGuardrails.soulFile} "$_home/SOUL.md"
 
     # Domain-expert SOUL template. hermes-expert-new stamps this onto every new
     # expert profile (substituting the name/domain/scope placeholders), so the
     # expert contract lives in exactly one reviewable file.
-    $DRY_RUN_CMD ln -sfn ${./hermes-expert-soul.md} "$_home/templates/domain-expert-SOUL.md"
+    $DRY_RUN_CMD ln -sfn ${config.hermesGuardrails.expertSoulTemplate} "$_home/templates/domain-expert-SOUL.md"
 
     # Materialize the vendored pass helpers the packaged CLIs call.
     for _h in ${lib.escapeShellArgs helperNames}; do

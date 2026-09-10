@@ -469,6 +469,42 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
   base skills read-only via `skills.external_dirs`; a rebuilt host or deleted
   profile loses runtime-created experts and their learned skills.
 
+## Hermes fleet guardrails (wsl host)
+
+Added after the 2026-09-10 live incident (the `photo-book-curator` expert ground
+~44 min driving the captain's live Lightroom, 25 window raises, no interim
+report). `modules/dev/hermes-guardrails.nix` (imported only by
+`hosts/wsl/configuration.nix`) is the single source of truth:
+
+- **Tunables are home-manager options** `hermesGuardrails.*`
+  (`runBudgetSeconds` 1800, `heartbeatSeconds` 300, `retryBound` 3,
+  `desktopLockTtlSeconds` 1800, `desktopLockWaitSeconds` 120, `desktopLockPath`).
+  Never hardcode these numbers in prose: the module renders
+  `modules/dev/{hermes-soul,hermes-expert-soul}.md` and every
+  `modules/dev/hermes-skills/*/SKILL.md` through `@PLACEHOLDER@` substitution
+  and exposes the results as read-only `hermesGuardrails.{soulFile,
+  expertSoulTemplate,skillsDir}` options; `hermes-home.nix` /
+  `hermes-skills.nix` consume those paths. Placeholders use `@NAME@`, NOT
+  `{{ }}` - the expert template's `{{EXPERT_NAME}}` / `{{DOMAIN}}` /
+  `{{DOMAIN_SCOPE}}` must survive for `hermes-expert-new`.
+- **`~/.hermes/guardrails.yaml`** is the machine-readable copy the CLIs read
+  (flat `key: value`, parsed with sed - no yq needed).
+- **CLIs** (packaged by the module, on PATH for orchestrator + workers):
+  `hermes-guardrails` prints the tunables (`show`/`values`/`budget-seconds`/
+  `heartbeat-seconds`/`retry-bound`/`lock-path`); `hermes-desktop-lock` is the
+  fleet-wide live-desktop lock (`status`/`acquire`/`renew`/`release`/`run`,
+  TTL-based lock dir + owner file, shared because all profiles run as one unix
+  user; a dead holder's lock expires and is reclaimed). Source:
+  `modules/dev/hermes-guardrails-bin/`.
+- **`guardrails` plugin** (`modules/dev/hermes-plugins/guardrails/`) injects the
+  fleet default `max_runtime_seconds` into any `kanban_create` lacking a usable
+  positive value - Hermes has no board-level default for the dispatcher's hard
+  stop, so this is what makes "no unbounded card" structurally true. Enabled
+  alongside `pass-enforcement` by `hermes-plugins.nix`. It is orchestrator-only
+  and is deliberately NOT copied to experts by `hermes-expert-new`.
+- **The alps full brain is unaffected** - `joy-brain.nix` keeps its own
+  SOUL/skills and does not import the guardrails module.
+
 ## Hermes pass-enforcement plugin (wsl host)
 
 `modules/dev/hermes-plugins.nix` (imported only by
