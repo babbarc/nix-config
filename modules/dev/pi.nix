@@ -46,6 +46,12 @@ in
   # - models.json has no runtime writer, so a plain read-only home.file
   # symlink is the correct declarative form. `pi install` pins packages into
   # settings.json's `packages` array, not here.
-  home.file.".pi/agent/models.json".source =
-    (pkgs.formats.json { }).generate "pi-models.json" piModels;
+  home.file.".pi/agent/models.json" = {
+    source = (pkgs.formats.json { }).generate "pi-models.json" piModels;
+    # This managed content is a documented superset of the hand-written
+    # models.json some hosts already carry (same `cost` overrides, plus the
+    # `contextWindow`/`maxTokens` pins), so replace that pre-existing file
+    # rather than letting activation abort on a "would be clobbered" check.
+    force = true;
+  };
 }
