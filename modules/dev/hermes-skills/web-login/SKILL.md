@@ -73,8 +73,8 @@ hermes-web-login --help
 `hermes-web-login` is packaged onto PATH by `modules/dev/hermes-skills.nix`
 (nix profile, shell-independent) - it is the one sanctioned path for a secret
 to enter a web page. If it cannot fill the field within the timebox below,
-stop and tell firstmate - do **not** fall back to typing the secret through a
-browser or desktop tool.
+stop and tell the dispatcher - do **not** fall back to typing the secret
+through a browser or desktop tool.
 
 ## Procedure
 
@@ -92,8 +92,8 @@ browser or desktop tool.
 ## Timebox
 
 SPA logins can defeat value injection. Budget 2 strategies x 3 tries. If it
-still fails, **stop and ask firstmate** for permission to use a single visible
-type-in, or to run a password-reset flow. Never silently fall back to
+still fails, **stop and ask the dispatcher** for permission to use a single
+visible type-in, or to run a password-reset flow. Never silently fall back to
 `browse type` with the secret.
 
 ## Related skills

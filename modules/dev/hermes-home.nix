@@ -8,8 +8,13 @@
 # What it materializes, all repo-tracked or generated:
 #   ~/.hermes/config.yaml   minimal seed (provider/model, web.search_backend,
 #                           browser.cdp_url) then a per-rebuild deep-merge of
-#                           browser.cdp_url so Hermes's runtime edits survive
+#                           the orchestrator override (browser.cdp_url, the
+#                           kanban toolset gate, kanban concurrency) so Hermes's
+#                           runtime edits to every OTHER key survive
 #   ~/.hermes/SOUL.md       -> modules/dev/hermes-soul.md (re-pinned each run)
+#   ~/.hermes/templates/domain-expert-SOUL.md
+#                           -> modules/dev/hermes-expert-soul.md; the template
+#                           hermes-expert-new stamps onto each new expert
 #   ~/.hermes/bin/pass-*    -> modules/dev/hermes-bin/ (vendored byte-for-byte
 #                           from the clone's scripts/; the pass-access and
 #                           web-login CLIs call these by absolute path)
@@ -47,12 +52,43 @@ let
   '';
 
   # Deep-merged into ~/.hermes/config.yaml on every activation. `*` is yq's
-  # merge operator (right-hand side wins), so only browser.cdp_url is forced
-  # and every other key - the seed above plus Hermes's own runtime edits via
-  # `hermes config set` / the TUI - survives a rebuild.
-  browserOverride = pkgs.writeText "hermes-browser-cdp-override.yaml" ''
+  # merge operator (right-hand side wins), so exactly these keys are forced and
+  # every other key - the seed above plus Hermes's own runtime edits via
+  # `hermes config set` / the TUI - survives a rebuild. Maps merge recursively
+  # (so other platform_toolsets entries survive), arrays are replaced (so the
+  # toolset lists stay exactly as declared).
+  #
+  # The default profile is the ORCHESTRATOR of the domain-expert fleet (captain
+  # decision 2026-09-09, data/hermes-orchestrator-design/report.md sections 0
+  # and 5.2):
+  #   - `toolsets` MUST name `kanban` - it is the gate
+  #     (`tools/kanban_tools.py` `_profile_has_kanban_toolset` reads the
+  #     top-level key), and it is also what swaps in the injected
+  #     KANBAN_GUIDANCE orchestrator rules.
+  #   - `platform_toolsets.cli` is what the CLI session's schema actually comes
+  #     from, so it must name `kanban` too. It is pinned to the approved
+  #     orchestrator surface (captain decision #2: kanban/terminal/file/skills/
+  #     memory/web; the MCP-derived `cua-driver` toolset rides along from the
+  #     seed's mcp_servers). `terminal`/`file` stay deliberately - the
+  #     orchestrator needs them to run `hermes profile list`,
+  #     `hermes-expert-new`, and the board; "never execute" is enforced by the
+  #     SOUL and the injected KANBAN_GUIDANCE, not by removing the shell.
+  #   - `kanban.auto_decompose: false` keeps routing with the orchestrator
+  #     instead of the auxiliary Triage decomposer.
+  #   - `kanban.max_in_progress_per_profile: 1` (captain decision #8) prevents
+  #     two concurrent workers writing the same expert profile's memory.
+  # Dispatcher-spawned expert workers do NOT inherit this: they get the `kanban`
+  # toolset force-added when HERMES_KANBAN_TASK is set, and their own profile
+  # config (written by hermes-expert-new) has the gate removed.
+  orchestratorOverride = pkgs.writeText "hermes-orchestrator-override.yaml" ''
     browser:
       cdp_url: "http://localhost:3333"
+    toolsets: [kanban, terminal, file, skills, memory, web]
+    platform_toolsets:
+      cli: [kanban, terminal, file, skills, memory, web]
+    kanban:
+      auto_decompose: false
+      max_in_progress_per_profile: 1
   '';
 
   # Vendored byte-for-byte from the private clone's scripts/{pass-to.sh,
@@ -79,7 +115,7 @@ in
       fi
     done
 
-    $DRY_RUN_CMD mkdir -p "$_home/bin" "$_home/skills" "$_home/plugins"
+    $DRY_RUN_CMD mkdir -p "$_home/bin" "$_home/skills" "$_home/plugins" "$_home/templates"
 
     # Drop stale skill symlinks from an older clone-instantiated generation, so
     # `hermes skills list` reflects only the repo-vendored set materialized by
@@ -92,20 +128,26 @@ in
     done
 
     # config.yaml: first activation seeds the minimal config above; every
-    # activation then deep-merges ONLY the browser.cdp_url override, so
-    # Hermes's own runtime edits survive.
+    # activation then deep-merges the orchestrator override, so Hermes's own
+    # runtime edits to every other key survive.
     if [ ! -e "$_home/config.yaml" ]; then
       $DRY_RUN_CMD cp ${lib.escapeShellArg minimalConfig} "$_home/config.yaml"
     fi
     if [ -e "$_home/config.yaml" ]; then
       $_yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
-        "$_home/config.yaml" ${lib.escapeShellArg browserOverride} > "$_home/config.yaml.tmp" \
+        "$_home/config.yaml" ${lib.escapeShellArg orchestratorOverride} > "$_home/config.yaml.tmp" \
         && $DRY_RUN_CMD mv "$_home/config.yaml.tmp" "$_home/config.yaml"
     fi
 
-    # Default-profile SOUL.md: the firstmate-delegated browser + Windows-desktop
-    # specialist role tracked in this repo, re-pinned on every activation.
+    # Default-profile SOUL.md: the captain-facing orchestrator role tracked in
+    # this repo (intake -> classify -> delegate to a domain expert; never
+    # executes), re-pinned on every activation.
     $DRY_RUN_CMD ln -sfn ${./hermes-soul.md} "$_home/SOUL.md"
+
+    # Domain-expert SOUL template. hermes-expert-new stamps this onto every new
+    # expert profile (substituting the name/domain/scope placeholders), so the
+    # expert contract lives in exactly one reviewable file.
+    $DRY_RUN_CMD ln -sfn ${./hermes-expert-soul.md} "$_home/templates/domain-expert-SOUL.md"
 
     # Materialize the vendored pass helpers the packaged CLIs call.
     for _h in ${lib.escapeShellArgs helperNames}; do

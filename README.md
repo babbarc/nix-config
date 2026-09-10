@@ -330,10 +330,18 @@ because the laptop/server hosts run no Hermes agent and no WSL interop:
 - `modules/dev/hermes-home.nix` - the curated home. Materializes `~/.hermes`
   (the `HERMES_HOME`) from repo-owned content only: a minimal `config.yaml`
   seed (provider/model, `web.search_backend: ddgs`, `browser.cdp_url`), the
-  repo-tracked `SOUL.md`, the vendored `~/.hermes/bin` pass helpers, and real
-  `skills/` + `plugins/` dirs. No clone, no SSH, no `alps`. The alps full
-  brain is a separate module (`modules/dev/joy-brain.nix`, see "What is
-  deliberately NOT vendored" below) that the wsl host does not import.
+  repo-tracked orchestrator `SOUL.md`, the domain-expert SOUL template at
+  `~/.hermes/templates/domain-expert-SOUL.md`, the vendored `~/.hermes/bin`
+  pass helpers, and real `skills/` + `plugins/` dirs. No clone, no SSH, no
+  `alps`. The alps full brain is a separate module
+  (`modules/dev/joy-brain.nix`, see "What is deliberately NOT vendored" below)
+  that the wsl host does not import.
+- `modules/dev/hermes-expert-new.nix` - packages `hermes-expert-new`, the
+  deterministic profile-provisioning helper the orchestrator runs to create a
+  domain expert. See "Orchestrator + domain-expert fleet (wsl)".
+- `modules/dev/hermes-gateway.nix` - the `hermes-gateway` systemd `--user`
+  unit. It hosts the kanban dispatcher, so the fleet can actually drain the
+  board. See "Orchestrator + domain-expert fleet (wsl)".
 
 ### Browser wiring
 
@@ -360,19 +368,24 @@ via `hermes config set` / the TUI - is preserved.
 The curated wsl instance no longer borrows any skills from joy-brain - it
 fetches no clone at all (see the `hermes-home.nix` note above). It runs a
 small, purpose-built, [AXI](https://axi.md/)-shaped set tailored to the
-firstmate-delegated role, **vendored in this repo** under
+delegated-orchestrator/expert role, **vendored in this repo** under
 `modules/dev/hermes-skills/<skill>/SKILL.md` (same posture as
 `modules/dev/hermes-soul.md`) and symlinked into `~/.hermes/skills/` by
 `modules/dev/hermes-skills.nix`:
 
 | Skill | Purpose |
 | --- | --- |
+| `axi-authoring` | The spec for building a missing capability as a reusable AXI artifact (an executable CLI, a Hermes plugin, and/or a skill): the 10 AXI principles, where each artifact kind lives, and the build -> validate -> use -> refine loop. Loaded when a task needs a capability that does not exist yet. |
 | `browse` | Drive the captain's real Windows Chrome for authenticated web tasks via the `hermes-browse` wrapper (the `chrome-devtools-axi` CLI over the CDP proxy); curl-vs-browser routing; automatic proxy warm-up; verify-each-step discipline; stop points. Searches go through the native `web_search` tool (keyless `web-ddgs` backend), not Chrome. |
 | `web-login` | Zero-exposure credential/OTP entry into a browser form - the secret is read from `pass` internally, never through a tool parameter. Owns the entire login surface. |
 | `pass-access` | Safe `pass` store access - find / ls / inspect / otp / doctor - metadata only, the secret never reaches stdout. |
 | `operate-desktop` | Guide (no CLI) for operating the Windows desktop through the raw `cua-driver` MCP tools with an observe -> act -> verify loop. On `wsl` the native `computer_use` wrapper cannot run (no X11 client lib), so these MCP tools are the working surface. When the agent learns an app it saves an `operate-<app>` skill of its own in the writable `~/.hermes/skills/`. |
 | `recover-blocked-page` | Recover a 403/429/paywall/WAF page via the archive ladder (Wayback -> archive.today -> reader -> API pivot -> browser), with provenance. Ships the `recover-page` wrapper. |
 | `delegated-task` | The operating contract as a checklist - scope pre-flight, the irreversible-action gate, secret hygiene, outcome-report format. |
+
+The set is the shared **base capability set**: every domain-expert profile sees it
+read-only through `skills.external_dirs` (see "Orchestrator + domain-expert fleet
+(wsl)"), and its `SOUL.md`/CLIs define the AXI shape new artifacts follow.
 
 Skill discovery needs **no** trust/enable step: Hermes scans
 `~/.hermes/skills/` recursively and any dir with a `SKILL.md` registers as a
@@ -413,20 +426,67 @@ The alps full brain (`hosts/hermes`) is unaffected - `modules/dev/joy-brain.nix`
 still symlinks that clone's entire skill tree, and the wsl host does not import
 it.
 
-### SOUL: the delegated-specialist role (wsl)
+### SOUL: the orchestrator role + the domain-expert template (wsl)
 
-The curated wsl instance does not run the private brain's persona. Its default-profile
-`SOUL.md` is tracked in this repo at `modules/dev/hermes-soul.md` and re-pinned
-to `~/.hermes/SOUL.md` on every activation. It defines the agent firstmate
-delegates to: an expert internet-browsing and Windows-desktop operator that
-drives real apps and authenticated web sessions like a careful human (reads the
-accessibility tree first, screenshots only when pixels matter, verifies each
-step), executes the assigned task and scope precisely and surfaces anything
-ambiguous or out-of-scope back to firstmate, never takes irreversible or
-outward-facing actions (sends, purchases, deletions, config changes) without
-explicit confirmation, and may pull credentials from `pass` for the task's
-logins but never echoes or logs a secret. The full brain (alps) is unaffected -
-it keeps joy-brain's own `SOUL.md`.
+The curated wsl instance does not run the private brain's persona. Its
+default-profile `SOUL.md` is tracked in this repo at `modules/dev/hermes-soul.md`
+and re-pinned to `~/.hermes/SOUL.md` on every activation. It is the captain's
+**orchestrator**: intake a task, classify its domain, delegate to an existing
+domain-expert profile through the kanban board (or create the expert when the
+domain is new), own the design/intake decisions, and **never execute the domain
+work itself**. It also expects experts to *build* capability - it can dispatch an
+"author an AXI" card when a task needs a tool the fleet does not have. The full
+brain (alps) is unaffected - it keeps joy-brain's own `SOUL.md`.
+
+The repo also tracks the **domain-expert SOUL template** at
+`modules/dev/hermes-expert-soul.md`, materialized to
+`~/.hermes/templates/domain-expert-SOUL.md`. `hermes-expert-new` stamps it onto
+each new expert (substituting name / domain / scope), so the delegated-worker
+contract lives in one reviewable file.
+
+### Orchestrator + domain-expert fleet (wsl)
+
+The default profile is the orchestrator; each domain expert is a separate Hermes
+profile (`~/.hermes/profiles/<name>/`), created at runtime. Nothing about this
+needs new orchestration code - it is built on Hermes primitives (captain
+decisions 2026-09-09, `data/hermes-orchestrator-design/report.md`):
+
+- **The board** is `hermes kanban` (SQLite, `~/.hermes/kanban.db`). The
+  orchestrator creates cards with a named `assignee`; the dispatcher promotes
+  dependency-satisfied cards and spawns `hermes -p <assignee>` workers.
+- **Kanban enablement is declarative.** `modules/dev/hermes-home.nix`
+  deep-merges an orchestrator override into `~/.hermes/config.yaml` on every
+  activation: both `toolsets` and `platform_toolsets.cli` name `kanban` (the
+  engine's two-key gate - otherwise the kanban tools stay hidden), the CLI
+toolset list is restricted to `kanban, terminal, file, skills, memory, web`
+(so the orchestrator keeps only what it needs to classify, provision, and route),
+`kanban.auto_decompose: false` (routing stays with the orchestrator), and
+`kanban.max_in_progress_per_profile: 1` (decision #8 - one worker per expert
+profile, so two workers never write one memory).
+- **The gateway unit is the dispatcher's host.**
+  `modules/dev/hermes-gateway.nix` declares a `hermes-gateway` systemd `--user`
+  service (`hermes gateway run --external-supervisor`). The kanban dispatcher
+  runs inside the gateway (`kanban.dispatch_in_gateway` defaults true), so
+  without the unit ready cards never spawn workers. It is a plain user service
+  like `browser-proxy-windows`; `hermes` recognizes it as its own unit.
+- **`hermes-expert-new` provisions an expert deterministically.**
+  `modules/dev/hermes-expert-new.nix` packages the repo-tracked helper
+  (`modules/dev/hermes-expert-new`, usage in its `--help`): it runs
+  `hermes profile create <name> --clone --no-alias --description ...`, then
+  removes the cloned orchestrator `toolsets`/`platform_toolsets` gate, points
+  `skills.external_dirs` at the shared `~/.hermes/skills`, empties the cloned
+  local skills dir, clears the cloned orchestrator memory, disables the
+  credential skills unless `--with-credentials` is passed (decision #6), stamps
+  `SOUL.md` from the template, and copies + enables the `pass-enforcement`
+  plugin (`--clone` does not copy plugins). It refuses a bad name or an existing
+  profile; `--force` recreates one (wipes its memory and learned skills).
+- **Built artifacts are the expert's own runtime state, not Nix state.**
+  Experts are self-contained: a CLI/plugin/skill an expert builds lives in that
+expert's own writable area (its profile's `skills/` and `plugins/`, or a
+  writable PATH dir such as `~/.local/bin` for a tool) and is **not** shared
+  through any fleet-wide registry or catalog. The shared Nix base skills stay
+  read-only symlinks. A rebuilt host (or a deleted profile) loses runtime-created
+  experts, their memory, and their learned skills; the base set survives.
 
 ### Plugins: `pass-enforcement` (wsl)
 
@@ -521,7 +581,10 @@ do it for you:
 6. **Hermes provider auth** (`wsl` only) - after the first rebuild, give
    the Hermes agent its model-provider credentials (`hermes` config / the
    provider's own login); the engine installs declaratively but ships no
-   keys.
+   keys. The default-profile credentials are inherited by every expert the
+   orchestrator creates (its config and `.env` are what `--clone` copies).
+   The `hermes-gateway` user unit starts with the session and hosts the
+   kanban dispatcher; check it with `systemctl --user status hermes-gateway`.
 7. **Windows side** (`wsl` only, run from Windows, not WSL):
    - a working Windows **Chrome** install for the CDP proxy
      (`browser-proxy-windows` drives the captain's real Chrome);

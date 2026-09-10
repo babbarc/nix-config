@@ -90,7 +90,7 @@ Three tiers: **durable** secrets (real passwords, long-lived API keys) go in
 `pass` only; **long-lived** tokens likewise; **ephemeral/refreshable** tokens
 (short OAuth access tokens) are used in-session and **not** written back.
 `pass-axi` deliberately cannot write - storing a secret is a `pass insert`
-done deliberately, and when in doubt, ask firstmate rather than persisting
+done deliberately, and when in doubt, ask the dispatcher rather than persisting
 something.
 
 ## Related skills
