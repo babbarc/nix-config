@@ -370,8 +370,15 @@ Full rationale + the curated skill subset + the not-vendored list live in README
   rebuild since the preceding `uv sync --locked` prunes it - enables the
   bundled keyless `web-ddgs` plugin, and pins `web.search_backend: ddgs`
   (`web-brave-free` is bundled but needs `BRAVE_SEARCH_API_KEY`, so it stays
-  disabled). The one remaining wrapper binary the SKILL.md files still point at
-  as a follow-up PR is `recover-page`; that SKILL.md carries the interim path.
+  disabled). `recover-page` (the `recover-blocked-page` CLI) is packaged the
+  same way (`writeShellApplication`, `python3`-only): the recovery logic is
+  `modules/dev/hermes-skills/recover-blocked-page/scripts/recover_page.py`,
+  vendored BYTE-IDENTICAL from Hermes core (MIT) - re-sync from a fresh Hermes
+  install, do not fork - and the thin `recover-page` wrapper beside it only
+  reshapes the output (content-first no-arg view, one-line `ok: {route,
+  provenance, snapshot_date, saved}` with snapshot-age disclosure,
+  `ALL_ROUTES_FAILED` route trace on total failure). All the SKILL.md interim
+  notes are now gone; every skill's wrapper binary ships.
   Skill discovery needs NO trust
   step: Hermes scans
   `~/.hermes/skills/` recursively (`os.walk` follows symlinks) and any

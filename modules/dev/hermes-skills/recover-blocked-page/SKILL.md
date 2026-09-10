@@ -26,28 +26,38 @@ down this ladder, cheapest first, and record which route produced the content.
 5. Browser          - `browse` as the LAST resort (real session, slow)
 ```
 
-## The tool: `recover-page`
+## The tool: `recover-page` (use this first)
 
 ```
 recover-page <url>          # -> ok: {route, provenance, snapshot_date, saved: <path>}
 recover-page <url> --json   # full route trace
+recover-page --help         # the ladder, the output shape, exit codes
 ```
 
-- The page body is written to a **file** (`saved:`), not dumped into context.
-- Definitive failure: `error: ALL_ROUTES_FAILED - tried wayback,
-  archive.today(x4), api-pivot` - never an empty file.
-- Provenance is in the output, so a report can cite "as archived <date>"
-  correctly.
+`recover-page` wraps `recover_page.py` - the **canonical Hermes-core recovery
+script** (MIT, vendored byte-identical in this repo, not a bespoke port). It
+walks routes 1-3 of the ladder in one shot, validates every body (see "Reject
+fake successes"), and:
 
-> **Status:** `recover-page` ships in a follow-up change. Use the manual ladder
-> below until it lands.
+- writes the page body to a **file** (`saved:`), never into context;
+- carries provenance + snapshot date in the output, so a report can cite
+  "as archived <date>" correctly;
+- on a `snapshot` hit, prints a `help[]` snapshot-age line - if the task needs
+  **current** values, say so to firstmate rather than passing stale data as live;
+- on total failure prints `ALL_ROUTES_FAILED - tried wayback,
+  archive.today(x4), api-pivot` with the route trace - never an empty file;
+- exit `0` recovered · `1` no route worked / operational error · `2` bad usage.
 
-## Interim path (no `recover-page` yet)
+Routes 4 (API / feed pivot) and 5 (browser) are **not** in the script - do them
+by hand, in that order, only after `recover-page` reports `ALL_ROUTES_FAILED`.
+
+## Fallback ladder (only after `recover-page` fails)
 
 1. **Wayback:**
    `curl -s "https://archive.org/wayback/available?url=<url>"` - if
    `archived_snapshots.closest.available` is true, fetch `.url` and note
-   `.timestamp`.
+   `.timestamp`. (`recover-page` already tries this - only re-run by hand to
+   debug.)
 2. **archive.today:** try `https://archive.ph/newest/<url>`, then `.md`, `.li`,
    `.is` (they rotate/block independently). Fetch the resulting snapshot.
 3. **Reader proxy:** if a reader/extraction endpoint and its key are
