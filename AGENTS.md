@@ -118,12 +118,20 @@ is captain-run as the hermes user: `nix run home-manager -- switch -b hm-bak
 
 Direct-install migration (Phase B, 2026-09-09) now declares the future
 container-free shape ALONGSIDE the quadlets in the same profile
-(`hosts/hermes/home.nix` imports `modules/dev/{hermes-agent,joy-brain,browser-proxy-linux,hermes-alps-services}.nix`
+(`hosts/hermes/home.nix` imports
+`modules/dev/{hermes-agent,joy-brain,browser-proxy-linux,hermes-alps-services,hermes-browser-tools}.nix`
 with `hermesAgent.standaloneDeps = true`): engine
 (same `hermesRev`), full-brain instantiation, a Linux host-Chrome browser
-proxy (`containers/systemd/browser-proxy-linux.py`, Q1a), and systemd --user
+proxy (`containers/systemd/browser-proxy-linux.py`, Q1a), systemd --user
 units for gateway/vision-bridge/baileys-watch/qmd (Q2a native @tobilu/qmd,
-Q3a host CUPS is a documented root step, not a unit). Both paths build green
+Q3a host CUPS is a documented root step, not a unit), and the browser-automation
+CLI/MCP pair the joy-stack container image bakes
+(`modules/dev/hermes-browser-tools.nix`: guarded `npm install --prefix
+~/.local -g chrome-devtools-axi chrome-devtools-mcp`, same pattern as
+`modules/dev/agent-cli-tools.nix`'s `axiSuiteInstall` but kept as its own
+module since the hermes profile imports no shared `modules/dev` list;
+`CHROME_DEVTOOLS_AXI_BROWSER_URL` is set alongside `BROWSER_CDP_URL` on the
+gateway unit in `hermes-alps-services.nix`). Both paths build green
 and coexist until the captain's Phase C/D cut-over - the direct units are
 deliberately named `hermes-*` to avoid colliding with the podman
 quadlet-generated `hermes.service`/`browser-proxy.service`/`qmd.service`.

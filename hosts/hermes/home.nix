@@ -55,5 +55,10 @@
     # baileys-watch, qmd) plus the native qmd install. See
     # modules/dev/hermes-alps-services.nix.
     ../../modules/dev/hermes-alps-services.nix
+
+    # Browser-automation CLI/MCP pair (chrome-devtools-axi, chrome-devtools-mcp)
+    # mirroring the joy-stack container image, so the direct install doesn't
+    # lose browser automation at cut-over. See modules/dev/hermes-browser-tools.nix.
+    ../../modules/dev/hermes-browser-tools.nix
   ];
 }
