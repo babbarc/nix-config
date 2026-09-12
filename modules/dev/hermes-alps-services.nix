@@ -118,6 +118,10 @@ in
         "PATH=${pathEnv}"
         # Route all browser automation to the local browser proxy.
         "BROWSER_CDP_URL=http://localhost:3333"
+        # Same proxy, for the chrome-devtools-axi CLI the browse skill (and any
+        # mcp_servers.chrome-devtools-mcp entry) drives - see
+        # modules/dev/hermes-browser-tools.nix for the npm install.
+        "CHROME_DEVTOOLS_AXI_BROWSER_URL=http://localhost:3333"
       ];
       Restart = "always";
       RestartSec = 5;
