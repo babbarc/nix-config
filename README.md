@@ -36,17 +36,19 @@ exercised.
 
 This repo is Nix-only: package management, home-manager/NixOS module
 wiring, and agenix secrets. It does not carry any dotfile *content* itself
-- `git.nix` and `claude-code.nix` are effectively empty, and `pi.nix`,
-`nvim.nix`, `lazygit.nix`, `cli-tools.nix`, `fish.nix`, and `herdr.nix` only
-declare packages, not config content - because `dotfiles` completed its
-chezmoi cutover and now owns that content directly, including
+- `claude-code.nix` is effectively empty, and `pi.nix`, `nvim.nix`,
+`lazygit.nix`, `cli-tools.nix`, `fish.nix`, and `herdr.nix` only declare
+packages, not config content - because `dotfiles` completed its chezmoi
+cutover and now owns that content directly, including
 `~/.pi/agent/settings.json` and `~/.claude/settings.json` (see `AGENTS.md`'s
 "Chezmoi cutover" section for the exact split, including the `wezterm.nix`/
 `sway.nix`/`waybar.nix` exception that hasn't been migrated yet). `git.nix`
-being empty is NOT part of that chezmoi cutover, though: git identity is
-deliberately a hand-set, per-machine local file that neither repo manages
-(see AGENTS.md's "Chezmoi cutover" section and "Deploying to a new machine"
-step 5 below).
+is NOT part of that chezmoi cutover, and it is no longer empty: git identity
+is nix-managed here, set at activation from the prompted per-machine
+`DOTFILES_USERNAME`/`DOTFILES_USER_EMAIL` values (see AGENTS.md's "Chezmoi
+cutover" section and "Deploying to a new machine" step 5 below). The `gh`
+credential helper in the same `~/.config/git/config` file stays
+`gh auth setup-git`'s to manage.
 `~/.pi/agent/models.json` is the one deliberate exception inside that split:
 chezmoi seeds it CREATE-ONLY, then the captain owns it outright - neither
 repo manages it after the first write (see `AGENTS.md`'s "Harness
@@ -687,11 +689,14 @@ do it for you:
    (`setup.sh` prompts for its remote URL). Needed by `pass-git-sync` and,
    on `wsl`, the `pass-access` / `web-login` Hermes skills.
 5. **`gh auth login`** - GitHub CLI auth for `gh` / `gh-axi`. Git identity
-   (`git config --global user.name <name>` /
-   `git config --global user.email <email>`) is a separate, hand-set step on
-   each machine - neither repo manages it. `gh auth setup-git` (run
-   automatically by `gh auth login`, or standalone) installs its credential
-   helper into that same `~/.config/git/config` file, so set identity first.
+   is nix-managed: `setup.sh` prompts for your name and email
+   (`DOTFILES_USERNAME`/`DOTFILES_USER_EMAIL`) and records them in
+   `~/.config/dotfiles/env`, and `modules/dev/git.nix`'s activation applies
+   them (`git config --global user.name`/`user.email`) on every
+   install/switch. `gh auth setup-git` (run automatically by `gh auth
+   login`, or standalone) installs its credential helper into that same
+   `~/.config/git/config` file - independent of, and unaffected by, the
+   identity activation.
 6. **Hermes provider auth** (`wsl` only) - after the first rebuild, give
    the Hermes agent its model-provider credentials (`hermes` config / the
    provider's own login); the engine installs declaratively but ships no
