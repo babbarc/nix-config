@@ -17,6 +17,7 @@
     ./agent-cli-tools.nix
     ./herdr.nix
     ./pi.nix
+    ./pi-extensions.nix
     ./claude-code.nix
     ./gpg-public-keys.nix
     ./pass-git-sync.nix

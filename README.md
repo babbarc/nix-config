@@ -36,12 +36,21 @@ exercised.
 
 This repo is Nix-only: package management, home-manager/NixOS module
 wiring, and agenix secrets. It does not carry any dotfile *content* itself
-- `pi.nix` and `git.nix` are effectively empty, and `nvim.nix`,
-`lazygit.nix`, `cli-tools.nix`, `fish.nix`, and `herdr.nix` only declare
-packages, not config content - because `dotfiles` completed its chezmoi
-cutover and now owns that content directly (see `AGENTS.md`'s "Chezmoi
-cutover" section for the exact split, including the `wezterm.nix`/
+- `git.nix` and `claude-code.nix` are effectively empty, and `pi.nix`,
+`nvim.nix`, `lazygit.nix`, `cli-tools.nix`, `fish.nix`, and `herdr.nix` only
+declare packages, not config content - because `dotfiles` completed its
+chezmoi cutover and now owns that content directly, including
+`~/.pi/agent/settings.json` and `~/.claude/settings.json` (see `AGENTS.md`'s
+"Chezmoi cutover" section for the exact split, including the `wezterm.nix`/
 `sway.nix`/`waybar.nix` exception that hasn't been migrated yet).
+`~/.pi/agent/models.json` is the one deliberate exception inside that split:
+chezmoi seeds it CREATE-ONLY, then the captain owns it outright - neither
+repo manages it after the first write (see `AGENTS.md`'s "Harness
+auto-compaction windows"). `pi-extensions.nix` is a second, narrower exception: it
+packages three third-party pi extensions as nix derivations and symlinks
+them into pi's own extension-discovery directory
+(`~/.pi/agent/extensions/<name>/`) - versioned software artifacts, not
+personal dotfile content, so nix keeps owning them.
 
 The two repos are stitched together at bootstrap time: this repo's
 `setup.sh` builds and activates the right host, then applies `dotfiles`'
