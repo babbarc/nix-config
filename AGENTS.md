@@ -41,14 +41,22 @@ anything newly created.
 dotfile, and this repo's modules were synced to match that landed end state
 (not re-derived independently - see git log for the sync commit). Result:
 
-- `pi.nix` and `git.nix` are packages-only / empty, respectively - settings.json
-  merging and the `.pi`/`.claude`/`.codex` symlinks moved to chezmoi in
-  `dotfiles`. Git identity did NOT move there: it's deliberately a hand-set,
-  per-machine local file (`~/.config/git/config`), unmanaged by either repo -
-  `dotfiles` PR #4 removed its whole-file chezmoi template because
-  `gh auth setup-git` writes its credential helper into that same file, and
-  the template clobbered it on every apply. Set identity by hand on each
-  machine (see README "Deploying to a new machine" step 5).
+- `pi.nix` is packages-only - settings.json merging and the
+  `.pi`/`.claude`/`.codex` symlinks moved to chezmoi in `dotfiles`. Git
+  identity did NOT move there: `modules/dev/git.nix` sets it directly, via a
+  `home.activation` that runs `git config --global user.name/user.email`
+  from the prompted per-machine `DOTFILES_USERNAME`/`DOTFILES_USER_EMAIL`
+  values (`~/.config/dotfiles/env`; see `env.example`). It skips entirely,
+  warning instead of writing, when either value is empty or still the
+  committed `env.example` placeholder - a switch without the documented env
+  override never stamps placeholder identity into git config. `dotfiles`
+  PR #4 removed a whole-file chezmoi template for this same reason
+  (`gh auth setup-git` writes its credential helper into the same
+  `~/.config/git/config` file, and the template clobbered it on every
+  apply); this activation uses `git config --global` - not a file template -
+  for the same reason: `--global` edits that file in place, alongside
+  whatever `gh auth setup-git` already wrote there (see README "Deploying to
+  a new machine" step 5).
 - `nvim.nix`, `lazygit.nix`, `cli-tools.nix` (`starship.toml`), `fish.nix`
   (its second, dotfiles-content `xdg.configFile` block), and `herdr.nix`
   (`config.toml`) had their content declarations removed outright - no
