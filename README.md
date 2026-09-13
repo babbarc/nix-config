@@ -42,7 +42,11 @@ declare packages, not config content - because `dotfiles` completed its
 chezmoi cutover and now owns that content directly, including
 `~/.pi/agent/settings.json` and `~/.claude/settings.json` (see `AGENTS.md`'s
 "Chezmoi cutover" section for the exact split, including the `wezterm.nix`/
-`sway.nix`/`waybar.nix` exception that hasn't been migrated yet).
+`sway.nix`/`waybar.nix` exception that hasn't been migrated yet). `git.nix`
+being empty is NOT part of that chezmoi cutover, though: git identity is
+deliberately a hand-set, per-machine local file that neither repo manages
+(see AGENTS.md's "Chezmoi cutover" section and "Deploying to a new machine"
+step 5 below).
 `~/.pi/agent/models.json` is the one deliberate exception inside that split:
 chezmoi seeds it CREATE-ONLY, then the captain owns it outright - neither
 repo manages it after the first write (see `AGENTS.md`'s "Harness
@@ -682,7 +686,12 @@ do it for you:
    (`gpg --import`) and clone the `pass` store to `~/.password-store`
    (`setup.sh` prompts for its remote URL). Needed by `pass-git-sync` and,
    on `wsl`, the `pass-access` / `web-login` Hermes skills.
-5. **`gh auth login`** - GitHub CLI auth for `gh` / `gh-axi`.
+5. **`gh auth login`** - GitHub CLI auth for `gh` / `gh-axi`. Git identity
+   (`git config --global user.name <name>` /
+   `git config --global user.email <email>`) is a separate, hand-set step on
+   each machine - neither repo manages it. `gh auth setup-git` (run
+   automatically by `gh auth login`, or standalone) installs its credential
+   helper into that same `~/.config/git/config` file, so set identity first.
 6. **Hermes provider auth** (`wsl` only) - after the first rebuild, give
    the Hermes agent its model-provider credentials (`hermes` config / the
    provider's own login); the engine installs declaratively but ships no
