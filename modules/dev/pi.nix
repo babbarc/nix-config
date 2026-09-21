@@ -18,7 +18,9 @@
   # - or, on hosts that already carried a hand-written models.json predating
   # this module, that pre-existing plain file - untouched either way.
   #
-  # The guide's three third-party extensions are packaged and installed by
-  # nix-config instead (modules/dev/pi-extensions.nix), not through pi's own
-  # `packages` array (which stays chezmoi-owned, still just `npm:pi-scroll`).
+  # The guide's three third-party extensions (pi-web-access,
+  # @ryan_nookpi/pi-extension-codex-fast-mode, and the git source
+  # algal/pi-openai-server-compaction) are pi-managed: `dotfiles` seeds them
+  # into settings.json `packages`, so `pi update` keeps them current. Nothing
+  # here packages them.
 }
