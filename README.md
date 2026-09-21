@@ -52,11 +52,8 @@ credential helper in the same `~/.config/git/config` file stays
 `~/.pi/agent/models.json` is the one deliberate exception inside that split:
 chezmoi seeds it CREATE-ONLY, then the captain owns it outright - neither
 repo manages it after the first write (see `AGENTS.md`'s "Harness
-auto-compaction windows"). `pi-extensions.nix` is a second, narrower exception: it
-packages three third-party pi extensions as nix derivations and symlinks
-them into pi's own extension-discovery directory
-(`~/.pi/agent/extensions/<name>/`) - versioned software artifacts, not
-personal dotfile content, so nix keeps owning them.
+auto-compaction windows"). The three third-party pi extensions are pi-managed too (seeded into
+settings.json `packages` by `dotfiles`); nix packages none of them.
 
 The two repos are stitched together at bootstrap time: this repo's
 `setup.sh` builds and activates the right host, then applies `dotfiles`'

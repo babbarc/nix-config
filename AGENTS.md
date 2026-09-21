@@ -288,12 +288,12 @@ window instead of an early default ("correct the window" approach). Both
 halves of this now live in `dotfiles` (chezmoi), not here - this repo
 dropped its `~/.pi/agent/models.json` symlink and its
 `~/.claude/settings.json` `autoCompactWindow` jq-merge outright (see "Pi
-agent config: chezmoi + nix-packaged extensions" below and the "Chezmoi
+agent config: chezmoi + pi-managed extensions" below and the "Chezmoi
 cutover" section above). Check `dotfiles` for the current mechanism and
 numbers; `modules/dev/pi.nix` and `modules/dev/claude-code.nix` here carry
 no compaction-window content any more.
 
-## Pi agent config: chezmoi + nix-packaged extensions
+## Pi agent config: chezmoi + pi-managed extensions
 
 Aligned to "Kun's Pi Agent Config"
 (https://blog.kunchenguid.com/p/kuns-pi-agent-config), split the same way as
@@ -316,31 +316,18 @@ therefore matters for a smooth transition (this nix-config PR first, then
 the `dotfiles` PR that seeds the file) but is not load-bearing for
 correctness either way.
 
-The guide's three third-party extensions
-(`pi-web-access@0.14.0`, `@ryan_nookpi/pi-extension-codex-fast-mode@0.2.6`,
-`git:github.com/algal/pi-openai-server-compaction@c6d593087709e9481223dc6c6c2269b371b5e055`)
-are packaged and installed by `modules/dev/pi-extensions.nix`
-(`pkgs.buildNpmPackage`/`fetchFromGitHub` against a vendored
-`pi-extensions/<name>/package-lock.json`, generated with
-`--legacy-peer-deps` so pi's own runtime peer deps - already resolvable at
-load time via pi's jiti alias map, `dist/core/extensions/loader.js`
-`getAliases()`/`VIRTUAL_MODULES` - are never separately installed), each
-symlinked as its own leaf under `~/.pi/agent/extensions/<name>/`. This is
-the guide's one deliberate non-adoption: the guide installs these through
-pi's own `packages` array in settings.json, which this repo does NOT do -
-that array (currently just `npm:pi-scroll`) stays entirely chezmoi-owned,
-and pi's auto-discovery of `~/.pi/agent/extensions/` never touches
-settings.json. Coexists with herdr's own
-`~/.pi/agent/extensions/herdr-agent-state.ts` (`modules/dev/herdr.nix`) as a
-sibling leaf in the same directory - `home.file` only manages the three
-extension entries, never the whole `extensions/` directory. Pi's directory
-auto-discovery (`resolveExtensionEntries` in the same loader file) checks a
-discovered subdirectory's own `package.json` `pi.extensions` field before
-falling back to a bare `index.ts`, so `pi-openai-server-compaction`'s real
-`src/index.ts` entry point loads as-is - no shim needed. Verify a rebuild
-picked up a new pin with pi's own loader, offline, no session or API key
-needed:
-`node -e 'import("<pi-coding-agent>/lib/node_modules/pi-monorepo/dist/core/extensions/loader.js").then(m=>m.discoverAndLoadExtensions([], process.cwd(), process.env.HOME+"/.pi/agent").then(r=>console.log(r.extensions.map(e=>e.path), r.errors)))'`.
+The guide's three third-party extensions (`npm:pi-web-access`,
+`npm:@ryan_nookpi/pi-extension-codex-fast-mode`,
+`git:github.com/algal/pi-openai-server-compaction`) are pi-managed: `dotfiles`
+seeds them into settings.json `packages` and pi installs them itself, so
+`pi update --extensions` / `pi update --all` keeps them current and `pi list`
+shows them. They were previously nix-packaged as read-only symlinks under
+`~/.pi/agent/extensions/<name>/` (`modules/dev/pi-extensions.nix`, since
+deleted - that reversed the earlier "deliberate exception" stance); nix here
+packages none of them. Herdr's own
+`~/.pi/agent/extensions/herdr-agent-state.ts` (`modules/dev/herdr.nix`) is
+unaffected. Landing order: apply the `dotfiles` seeding BEFORE this change's
+`home-manager switch`, or the extensions vanish until it is applied.
 
 ## Windows Chrome CDP proxy (wsl host)
 
