@@ -41,8 +41,9 @@ anything newly created.
 dotfile, and this repo's modules were synced to match that landed end state
 (not re-derived independently - see git log for the sync commit). Result:
 
-- `pi.nix` is packages-only - settings.json merging and the
-  `.pi`/`.claude`/`.codex` symlinks moved to chezmoi in `dotfiles`. Git
+- `pi.nix` carries no config content - settings.json merging and the
+  `.pi`/`.claude`/`.codex` symlinks moved to chezmoi in `dotfiles` (it only
+  bootstraps the pi binary; see "Pi agent config" below). Git
   identity did NOT move there: `modules/dev/git.nix` sets it directly, via a
   `home.activation` that runs `git config --global user.name/user.email`
   from the prompted per-machine `DOTFILES_USERNAME`/`DOTFILES_USER_EMAIL`
@@ -302,9 +303,9 @@ content outright (theme, pi's own `packages` array, `extensions` array, and
 so on), `~/.claude/settings.json` content outright, and seeds
 `~/.pi/agent/models.json` CREATE-ONLY (chezmoi's `create_` file class) so
 the captain can hand-edit it forever after without either repo fighting the
-edit. `modules/dev/pi.nix` here is packages-only (`pkgs.pi-coding-agent`) -
-its former `home.file ".pi/agent/models.json"` read-only symlink is retired
-outright, not replaced. On a host whose home-manager generation still
+edit. `modules/dev/pi.nix` here carries no pi config - its former
+`home.file ".pi/agent/models.json"` read-only symlink is retired outright,
+not replaced. On a host whose home-manager generation still
 carries that old symlink, the next switch removes it cleanly (home-manager
 only ever deletes a target it finds symlinked into an OLD generation's own
 `*-home-manager-files` store path - verified against
@@ -328,6 +329,21 @@ packages none of them. Herdr's own
 `~/.pi/agent/extensions/herdr-agent-state.ts` (`modules/dev/herdr.nix`) is
 unaffected. Landing order: apply the `dotfiles` seeding BEFORE this change's
 `home-manager switch`, or the extensions vanish until it is applied.
+
+pi itself is NOT nix-pinned: like treehouse/no-mistakes/the axi suite
+(`modules/dev/agent-cli-tools.nix`), `modules/dev/pi.nix` only bootstraps it
+once (guarded `piInstall` activation running the official
+`https://pi.dev/install.sh` when `command -v pi` fails), and each host then
+self-updates with `pi update --self` / `pi update --all`. The installer's
+managed install puts releases under `~/.pi/agent/install/`, a launcher at
+`~/.pi/agent/bin/pi`, and the `~/.local/bin/pi` symlink. It was previously
+`pkgs.pi-coding-agent` in `home.packages`, a read-only store path that
+`pi update --self` could not replace. Sharp edge: every installer prompt
+reads `/dev/tty`, not stdin, so the activation runs it under `setsid` (plus
+pinned `nodejs_26` on its PATH so it never offers its interactive Node.js
+install, and `TERM=dumb` so its animation cannot clear the switch output) -
+redirecting stdin alone still hangs on the install menu when `home-manager
+switch` runs from a terminal (verified).
 
 ## Windows Chrome CDP proxy (wsl host)
 
