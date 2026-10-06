@@ -23,7 +23,6 @@
     unrar
     p7zip
     lbzip2
-    yt-dlp
     translate-shell
     speedtest-cli
     ssh-audit
