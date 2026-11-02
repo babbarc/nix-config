@@ -16,6 +16,10 @@ CONTAINER_NAME = os.environ.get("CONTAINER_NAME", "hermes-browser")
 CONTAINER_IMAGE = os.environ.get("CONTAINER_IMAGE", "localhost/hermes-browser:latest")
 BROWSER_VOLUME = os.environ.get("BROWSER_VOLUME", "hermes-browser-data")
 IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", "3600"))
+# IANA zone for the browser's Intl/Date clock (passed as TZ to the Chrome
+# container). Set it to where the egress IP geolocates; empty keeps the
+# image default, UTC.
+BROWSER_TZ = os.environ.get("BROWSER_TZ", "")
 BROWSER_STOP_TIMEOUT = 5
 active_connections = 0
 last_activity = time.time()
@@ -66,6 +70,7 @@ async def ensure_browser_running():
                 "--network", "host",
                 "--security-opt", "seccomp=unconfined",
                 "--device", "/dev/dri/renderD128",
+                *(["-e", f"TZ={BROWSER_TZ}"] if BROWSER_TZ else []),
                 "-v", f"{BROWSER_VOLUME}:/home/chrome/devtools-profile",
                 CONTAINER_IMAGE,
                 "--headless=new",
@@ -78,7 +83,7 @@ async def ensure_browser_running():
                 "--disable-dev-shm-usage",
                 "--window-size=1920,1080",
                 "--ozone-override-screen-size=1920,1080",
-                "--lang=en-US,en",
+                "--lang=en-GB,en",
                 "--use-angle=vulkan",
                 "--enable-features=Vulkan",
                 "--force-color-profile=srgb",
