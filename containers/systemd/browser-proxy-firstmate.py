@@ -84,6 +84,7 @@ async def ensure_browser_running():
                 "--window-size=1920,1080",
                 "--ozone-override-screen-size=1920,1080",
                 "--lang=en-GB,en",
+                "--accept-lang=en-GB,en",
                 "--use-angle=vulkan",
                 "--enable-features=Vulkan",
                 "--force-color-profile=srgb",
