@@ -34,6 +34,8 @@ Environment=PROXY_PORT=3343
 Environment=BROWSER_PORT=3344
 Environment=CONTAINER_NAME=hermes-browser-firstmate
 Environment=BROWSER_VOLUME=hermes-browser-data-firstmate
+# Browser clock zone; matches the egress IP (Hyperoptic, London).
+Environment=BROWSER_TZ=Europe/London
 
 Exec=/usr/local/bin/python3 -u /proxy.py
 

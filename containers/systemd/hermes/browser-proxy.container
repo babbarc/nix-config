@@ -32,6 +32,8 @@ Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
 Environment=PYTHONUNBUFFERED=1
 # On-demand Chrome sidecar image (pinned; overridable).
 Environment=CONTAINER_IMAGE=localhost/hermes-browser:v2026.8.31-babbarc.1
+# Browser clock zone; matches the egress IP (Hyperoptic, London).
+Environment=BROWSER_TZ=Europe/London
 
 Exec=/usr/local/bin/python3 -u /proxy.py
 
