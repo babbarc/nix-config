@@ -17,6 +17,12 @@ in
 
   services.gpg-agent.pinentry.package = pkgs.pinentry-curses;
 
+  # Hybrid host: pacman owns the system toolchain, so nix installs no compiler
+  # front end here and `cc` resolves to pacman's /usr/bin/cc (gcc). A nix gcc
+  # first in PATH made default-PATH makepkg builds link nix glibc. See
+  # modules/dev/dev-toolchains.nix.
+  devToolchains.cCompiler = "system";
+
   imports = [
     ../../modules/dev
   ];
