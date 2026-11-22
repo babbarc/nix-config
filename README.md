@@ -69,16 +69,17 @@ Run `setup.sh` from a checkout, or fetch-and-run it directly on a bare
 machine with only `nix` installed (no git, no editors required):
 
 ```sh
-./setup.sh [--role <laptop|server|wsl>] [--dry-run]
+./setup.sh [--role <laptop|server|wsl|hermes>] [--dry-run]
 ```
 
 It's a guided installer that:
 
-1. detects the host role (laptop/server/wsl) from the environment, with a
-   prompt fallback
+1. detects the host role (laptop/server/wsl/hermes) from the environment,
+   with a prompt fallback
 2. asks where to fetch this repo from (a Gitea remote, the public GitHub
    mirror, or an existing local checkout) and prompts for only the
-   per-machine env values that role needs
+   per-machine env values that role needs (`hermes` reads no env file, so
+   it skips every env question)
 3. writes `~/.config/dotfiles/env`, builds and activates the right target
    (`homeConfigurations.laptop`/`.server` via `home-manager switch`-style
    activation, or `nixosConfigurations.wsl` via
@@ -86,10 +87,72 @@ It's a guided installer that:
 4. applies the sibling `dotfiles` repo's chezmoi-managed content via
    chezmoi's own init+apply+purge (`--purge`) - no persistent checkout is
    cloned or left behind on the host
+5. prints a readiness report (checkout drift, `pi`/`hermes`/firstmate
+   resolution, Hermes units, `gh`/`gpg`/`pass`, per-role env keys) - report
+   only, it never fails the run
 
 Use `--dry-run` to see every command it would run without changing
 anything. See `setup.sh --help` and its own header comment for the full
 behavior, including non-interactive/scripted use.
+
+### Updating a machine
+
+Install runs once per machine; `update` maintains it from then on, with the
+same entry point and the same per-host build/activate command:
+
+```sh
+./setup.sh update [--role <laptop|server|wsl|hermes>] [--dry-run]
+```
+
+| | `./setup.sh` (install) | `./setup.sh update` |
+| --- | --- | --- |
+| prompts | yes, once | never |
+| `~/.config/dotfiles/env` | written | read only - refused if missing (that means install never ran) |
+| repo | cloned/unpacked, or pulled if already there | `git pull --ff-only` in the checkout |
+| build + activate | per-host command | the identical per-host command |
+| chezmoi | `init --apply --force --no-tty --purge` | the identical command (skipped for `hermes`) |
+| runtime refresh | no | `pi`, `hermes`, `herdr`, npm axi suite, firstmate (skipped for `hermes`) |
+| readiness report | yes | yes |
+
+`update` runs from a checkout (the one it is invoked from, else
+`~/.nix-config`), refuses a checkout with uncommitted tracked changes, and
+is pull-only by default - the flake lock bumps are committed in this repo,
+so pulling is normally all that is needed. The flags:
+
+- `--bump` - also run `nix flake update` in the checkout before building
+  (freshest nixpkgs/home-manager, at the cost of an update that can fail on
+  an unrelated upstream change)
+- `--allow-dirty` - proceed despite uncommitted tracked changes
+- `--skip-runtime` - skip the runtime refresh (pi/hermes/herdr/npm axi
+  suite/firstmate); the Nix + chezmoi halves still run
+- `--dry-run` - print every command instead of running it (nothing is
+  pulled, built, applied or refreshed)
+
+Bootstrap steps never re-run on update: `pi`, firstmate, herdr and the other
+install-once tools are either guarded home-manager activations or
+install-only phases, so a switch on a provisioned machine is a local no-op.
+Update only adds what Nix cannot express - pulling the checkout, re-applying
+chezmoi, and refreshing the runtimes that self-update outside Nix. The
+guarded refresh commands are warn-not-die: a failure is reported and the run
+continues.
+
+Runtime refresh is also where firstmate advances: `~/firstmate/bin/fm-update.sh`
+fast-forwards its tracked files only and never touches `data/`, `state/`,
+`config/`, or `projects/`.
+
+`--role hermes` targets the joy host's standalone `homeConfigurations.hermes`
+profile (`nix run home-manager -- switch -b hm-bak --flake <checkout>#hermes`;
+`-b` is required on first activation because the joy-stack `.container` files
+already exist). It deliberately has no env file, no chezmoi apply, and no
+runtime refresh - that profile must not touch the hermes user's hand-managed
+dotfiles.
+
+Both lifecycles end with the same readiness report: checkout HEAD vs its
+upstream, `pi` resolving into `~/.pi/agent/install/` rather than the nix
+store, `~/firstmate` remote, `hermes --version` and its venv path, the
+curated skills and plugins, the host's Hermes user units, `gh auth status`,
+`gpg` secret keys, `~/.password-store`, and the per-role env keys. Every
+line is PASS/FAIL/SKIP and each FAIL names the one command that fixes it.
 
 ### One command
 
@@ -666,9 +729,10 @@ path is the CDP proxy, not an MCP server.
 
 ## Deploying to a new machine
 
-`setup.sh` builds, activates, and applies chezmoi. Everything below is
-per-machine or out-of-band - it is not in the flake and `setup.sh` cannot
-do it for you:
+`setup.sh` (install) builds, activates, and applies chezmoi;
+`setup.sh update` (see "Updating a machine") keeps them current. Everything
+below is per-machine or out-of-band - it is not in the flake and `setup.sh`
+cannot do it for you:
 
 1. **Per-machine env** - `~/.config/dotfiles/env`. `setup.sh` writes it,
    prompting only the keys the role needs (`env.example` documents them
@@ -716,6 +780,7 @@ verify, and what any change should be re-checked against before merging:
 ```sh
 nix build .#homeConfigurations.laptop.activationPackage --no-link
 nix build .#homeConfigurations.server.activationPackage --no-link
+nix build .#homeConfigurations.hermes.activationPackage --no-link
 nix build .#nixosConfigurations.wsl.config.system.build.toplevel --no-link
 nix flake check .
 ```
@@ -737,7 +802,8 @@ secrets.nix             agenix secret -> public-key mapping
 *.age                   agenix-encrypted secret files (committed, encrypted)
 gpg-keys/               public GPG key material imported on activation
 env.example             template for the per-machine ~/.config/dotfiles/env
-setup.sh                guided bootstrap entry point (see "Bootstrap" above)
+setup.sh                install + update entry point (see "Bootstrap" and
+                         "Updating a machine" above)
 cua-driver-bootstrap.ps1   Windows-side one-time setup for the Hermes Cua desktop driver
 patches/                local patches applied to inputs, if any
 ```
