@@ -31,9 +31,12 @@ in
   # Chrome 152 binds DevTools to 127.0.0.1, and proxy + Chrome are on the same
   # host, so the proxy connects straight to 127.0.0.1:BROWSER_PORT.
   #
-  # Deliberately NOT in modules/dev/default.nix: it only makes sense on the
-  # alps hermes host (a Linux host with Google Chrome installed), so it is
-  # imported explicitly by hosts/hermes/home.nix.
+  # Deliberately NOT in modules/dev/default.nix: it only makes sense on a Linux
+  # host with Google Chrome installed, so it is imported explicitly by
+  # hosts/hermes/home.nix (alps, the dedicated `hermes` user) and
+  # hosts/laptop/home.nix (the captain's login-user Hermes fleet). The WSL host
+  # uses modules/dev/browser-proxy-windows.nix instead; the headless server
+  # uses neither and runs Hermes without a browser backend on purpose.
   systemd.user.services.hermes-browser-proxy = {
     Unit = {
       Description = "Hermes Browser Proxy (host Chrome) - lazy CDP on port 3333";

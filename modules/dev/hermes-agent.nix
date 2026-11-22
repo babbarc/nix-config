@@ -45,11 +45,13 @@ let
 in
 {
   options.hermesAgent = {
-    # The wsl host imports the shared modules/dev list (cli-tools.nix /
-    # dev-toolchains.nix), so git/ripgrep/nodejs/python3/etc. are already
-    # declared there and must not be repeated. The alps `hermes` host imports
-    # NO shared modules (hosts/hermes/home.nix carries only its own modules),
-    # so it opts into declaring the full runtime dependency set itself.
+    # The curated login-user hosts (wsl/laptop/server, via
+    # modules/dev/hermes-curated.nix) import the shared modules/dev list
+    # (cli-tools.nix / dev-toolchains.nix), so git/ripgrep/nodejs/python3/etc.
+    # are already declared there and must not be repeated. The alps `hermes`
+    # host imports NO shared modules (hosts/hermes/home.nix carries only its own
+    # modules), so it opts into declaring the full runtime dependency set
+    # itself.
     standaloneDeps = lib.mkEnableOption "declare the full Hermes runtime dependency set (for hosts that do not import the shared modules/dev list)";
 
     # wsl-only: the Hermes agent there operates the Windows desktop through
@@ -60,11 +62,11 @@ in
   };
 
   config = lib.mkMerge [ {
-    # Hermes Agent engine, imported by two hosts:
-    #   - wsl (hosts/wsl/configuration.nix, alongside modules/dev/hermes-home.nix)
-    #   - alps hermes (hosts/hermes/home.nix, alongside modules/dev/joy-brain.nix)
-    # Never the shared modules/dev list, which the laptop/server hosts also
-    # import.
+    # Hermes Agent engine. Imported either through
+    # modules/dev/hermes-curated.nix (the login-user set: wsl, laptop, server)
+    # or directly by the alps `hermes` profile (hosts/hermes/home.nix), which
+    # is a separate machine-level deployment and opts into standaloneDeps.
+    # Never the shared modules/dev list.
     #
     # Install model: a pinned `uv sync` of the upstream repo into a writable
     # checkout at ~/.local/share/hermes-agent, mirroring upstream's own
@@ -83,9 +85,10 @@ in
     # (firstmate.nix, herdr.nix, agent-cli-tools.nix), so a pinned uv sync is
     # the consistent, simpler choice here.
     #
-    # HERMES_HOME is ~/.hermes: on wsl the curated, self-contained home
-    # materialized by modules/dev/hermes-home.nix; on alps the full joy-brain
-    # materialized by modules/dev/joy-brain.nix - keep those in sync.
+    # HERMES_HOME is ~/.hermes: on wsl/laptop/server the curated,
+    # self-contained home materialized by modules/dev/hermes-home.nix; on alps
+    # the full joy-brain materialized by modules/dev/joy-brain.nix - keep those
+    # in sync.
     home.packages = with pkgs; [
       uv      # drives the pinned install below (and later `hermes update`)
       ffmpeg  # runtime dep of several hermes tools/skills
@@ -175,9 +178,9 @@ in
     #   3. pin `web.search_backend: ddgs` so `web_search` selects it directly
     #      instead of laddering toward a managed/paid backend.
     #
-    # Runs after hermesHomeInstantiate (wsl) / joyBrainInstantiate (alps) so the
-    # seeded ~/.hermes/config.yaml is the file that gets the plugin + backend
-    # entries. Warn-not-die, guarded on the hermes CLI and the venv being
+    # Runs after hermesHomeInstantiate (curated home) / joyBrainInstantiate
+    # (alps) so the seeded ~/.hermes/config.yaml is the file that gets the
+    # plugin + backend entries. Warn-not-die, guarded on the hermes CLI and the venv being
     # present - same posture as hermesCuaDriver.
     home.activation.hermesWebSearch =
       lib.hm.dag.entryAfter [ "hermesHomeInstantiate" "joyBrainInstantiate" "hermesAgentInstall" ] ''

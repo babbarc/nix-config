@@ -1,5 +1,6 @@
-# Fleet guardrails for the shipped Hermes agent (wsl orchestrator + domain-expert
-# fleet), added after the 2026-09-10 live incident: the `photo-book-curator`
+# Fleet guardrails for the shipped Hermes agent (orchestrator + domain-expert
+# fleet on every host that imports modules/dev/hermes-curated.nix), added after
+# the 2026-09-10 live incident: the `photo-book-curator`
 # expert ground for ~44 minutes on a live-Lightroom UI spot-check - a 5,016-line
 # log, 25 window raises, 16 patch rounds on one helper - with no interim report.
 # A first pass of guardrails then failed live: after the fleet was un-paused, the
@@ -11,8 +12,8 @@
 #
 # This module is the SINGLE SOURCE OF TRUTH for the guardrail tunables. It:
 #
-#   1. declares `hermesGuardrails.*` options (overridable from
-#      hosts/wsl/configuration.nix),
+#   1. declares `hermesGuardrails.*` options (overridable from any importing
+#      host),
 #   2. renders the orchestrator SOUL, the expert SOUL template and the shared
 #      skills through those values, so the numbers in the prose come from the
 #      options instead of being scattered magic numbers,
@@ -31,8 +32,9 @@
 # that lacks one, so a card cannot be dispatched unbounded. The dispatcher then
 # hard-stops the worker at the cap with a `timed_out` event.
 #
-# Scope: wsl only. The alps full brain (`modules/dev/joy-brain.nix`) keeps its
-# own SOUL/skills and does not import this module.
+# Scope: the curated login-user fleet. The alps full brain
+# (`modules/dev/joy-brain.nix`) keeps its own SOUL/skills and does not import
+# this module.
 { config, lib, pkgs, ... }:
 let
   hermesHome = "${config.home.homeDirectory}/.hermes";

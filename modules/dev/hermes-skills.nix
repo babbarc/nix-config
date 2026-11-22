@@ -2,7 +2,8 @@
 let
   hermesHome = "${config.home.homeDirectory}/.hermes";
 
-  # Purpose-built, AXI-shaped skill set for the curated (wsl) Hermes instance.
+  # Purpose-built, AXI-shaped skill set for the curated Hermes instance (every
+  # host importing modules/dev/hermes-curated.nix).
   # The default profile is now the captain-facing ORCHESTRATOR, which never
   # executes domain work; these skills are the shared base capability set every
   # domain-expert profile sees through `skills.external_dirs` (see the expert
@@ -11,8 +12,8 @@ let
   # modules/dev/hermes-soul.md and modules/dev/hermes-bin/: repo-tracked,
   # restored on every rebuild, never pulled from a private external repo.
   #
-  # Scope: wsl only (captain decision 2026-09-09). Deliberately NOT imported by
-  # the alps full brain (hosts/hermes/home.nix), which keeps its own skill tree.
+  # Scope: the curated login-user fleet only. Deliberately NOT imported by the
+  # alps full brain (hosts/hermes/home.nix), which keeps its own skill tree.
   #
   # This module materializes the skills and packages the CLIs they call
   # (`pass-axi` for pass-access, `hermes-web-login` for web-login, `hermes-browse`

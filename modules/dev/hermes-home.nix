@@ -1,9 +1,18 @@
-# Curated Hermes home for the wsl host - GENERIC and fully self-contained:
-# every piece is generated here or vendored in this repo, with no dependency on
-# a private external clone (and therefore no SSH to `alps` at deploy time). It
-# is the wsl counterpart to modules/dev/joy-brain.nix, which keeps materializing
-# the full private brain on alps - same `~/.hermes` (HERMES_HOME) contract,
-# different source of truth.
+# Curated Hermes home for a login-user Hermes install - GENERIC and fully
+# self-contained: every piece is generated here or vendored in this repo, with
+# no dependency on a private external clone (and therefore no SSH to `alps` at
+# deploy time). It is the counterpart to modules/dev/joy-brain.nix, which keeps
+# materializing the full private brain on alps - same `~/.hermes` (HERMES_HOME)
+# contract, different source of truth.
+#
+# Shipped on every host that imports modules/dev/hermes-curated.nix (wsl,
+# laptop, server). Nothing here is host-specific except the optional browser
+# endpoint: `hermesHome.browserCdpUrl` is set by that module only when the host
+# declares a CDP backend, so a headless host seeds no `browser.cdp_url`.
+#
+# Re-run safety: the only writes are the seed-if-absent config.yaml and the
+# keyed yq merge below, so captain/Hermes-owned state (.env, auth.json,
+# kanban.db, sessions/, memories/, cron/) is never touched.
 #
 # What it materializes, all repo-tracked or generated:
 #   ~/.hermes/config.yaml   minimal seed (provider/model, web.search_backend,
@@ -27,8 +36,9 @@
 #                           hermes-plugins.nix fill them with the vendored,
 #                           repo-tracked content
 #
-# The wsl host imports this INSTEAD of joy-brain.nix; the alps full brain does
-# not import it. Nothing here references an SSH URL or the private clone.
+# Every curated host imports this INSTEAD of joy-brain.nix; the alps full
+# brain does not import it. Nothing here references an SSH URL or the private
+# clone.
 { config, lib, pkgs, ... }:
 let
   hermesHome = "${config.home.homeDirectory}/.hermes";
@@ -39,11 +49,15 @@ let
   #   - agent.max_turns: the operating budget
   #   - web.search_backend: the keyless ddgs backend (hermes-agent.nix installs
   #     `ddgs` into the Hermes venv and enables the plugin)
-  #   - browser.cdp_url: the Windows-Chrome CDP proxy contract
+  #   - browser.cdp_url: the local CDP proxy contract, only on a host with a
+  #     browser backend (see hermesHome.browserCdpUrl)
   # Everything else Hermes fills from its own defaults, and any runtime edit
   # Hermes persists is preserved by the merge below. No personal keys
   # (memory, contacts, profiles, mcp_servers.qmd) ride along.
-  minimalConfig = pkgs.writeText "hermes-home-config.yaml" ''
+  browserYaml = lib.optionalString (config.hermesHome.browserCdpUrl != null) (
+    "browser:\n  cdp_url: \"${config.hermesHome.browserCdpUrl}\"\n");
+
+  minimalConfig = pkgs.writeText "hermes-home-config.yaml" (''
     model:
       default: deepseek-v4-flash
       provider: deepseek
@@ -52,9 +66,7 @@ let
       max_turns: 150
     web:
       search_backend: ddgs
-    browser:
-      cdp_url: "http://localhost:3333"
-  '';
+  '' + browserYaml);
 
   # Deep-merged into ~/.hermes/config.yaml on every activation. `*` is yq's
   # merge operator (right-hand side wins), so exactly these keys are forced and
@@ -85,16 +97,16 @@ let
   # Dispatcher-spawned expert workers do NOT inherit this: they get the `kanban`
   # toolset force-added when HERMES_KANBAN_TASK is set, and their own profile
   # config (written by hermes-expert-new) has the gate removed.
-  orchestratorOverride = pkgs.writeText "hermes-orchestrator-override.yaml" ''
-    browser:
-      cdp_url: "http://localhost:3333"
-    toolsets: [kanban, terminal, file, skills, memory, web]
-    platform_toolsets:
-      cli: [kanban, terminal, file, skills, memory, web]
-    kanban:
-      auto_decompose: false
-      max_in_progress_per_profile: 1
-  '';
+  orchestratorOverride = pkgs.writeText "hermes-orchestrator-override.yaml" (
+    browserYaml + ''
+      toolsets: [kanban, terminal, file, skills, memory, web]
+      platform_toolsets:
+        cli: [kanban, terminal, file, skills, memory, web]
+      kanban:
+        auto_decompose: false
+        max_in_progress_per_profile: 1
+    ''
+  );
 
   # Vendored byte-for-byte from the private clone's scripts/{pass-to.sh,
   # pass-inspect,pass-env.sh}. The pass-access (pass-axi) and web-login
@@ -103,7 +115,21 @@ let
   helperNames = [ "pass-to" "pass-inspect" "pass-env" ];
 in
 {
-  home.activation.hermesHomeInstantiate = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+  options.hermesHome.browserCdpUrl = lib.mkOption {
+    type = lib.types.nullOr lib.types.str;
+    default = "http://localhost:3333";
+    example = null;
+    description = ''
+      CDP endpoint the agent's browser tooling dials, seeded into
+      `~/.hermes/config.yaml` as `browser.cdp_url` and re-asserted on every
+      activation. Set to null on a host with no browser backend (headless
+      server): the seed then omits the browser block, so nothing advertises an
+      endpoint that cannot exist. modules/dev/hermes-curated.nix derives this
+      from `hermesCurated.browserProxyUnit`; do not set both.
+    '';
+  };
+
+  config.home.activation.hermesHomeInstantiate = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     _home=${lib.escapeShellArg hermesHome}
     _yq=${pkgs.yq-go}/bin/yq
 

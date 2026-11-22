@@ -383,14 +383,40 @@ required those mounts and still failed interop, which is why it was removed.
 the marker process, never the captain's Chrome), and `GET /status` reports
 `{chrome, visible}`. It does not start/stop Chrome, so single-instance +
 idle-stop invariants hold.
-## Hermes agent on wsl (install + self-contained home)
+## Hermes agent on every login-user host (install + self-contained home)
 
-`modules/dev/hermes-agent.nix` and `modules/dev/hermes-home.nix` (imported only
-by `hosts/wsl/configuration.nix`, never the shared `modules/dev` list) install
-the Hermes agent and materialize a generic, self-contained Hermes home - no
-private clone and no SSH to `alps`. Full rationale + the curated skill subset
-+ the not-vendored list live in README "Hermes agent (wsl)"; the sharp edges
-worth knowing here:
+Captain's model (2026-09): Hermes runs as the SAME login user that runs
+firstmate on that machine, never as a dedicated user per host. One shared
+module, `modules/dev/hermes-curated.nix`, imports the whole portable set
+(`hermes-agent`, `hermes-guardrails`, `hermes-home`, `hermes-skills`,
+`hermes-plugins`, `hermes-expert-new`, `hermes-gateway`) and is imported by
+`hosts/wsl/configuration.nix`, `hosts/laptop/home.nix` and
+`hosts/server/home.nix` - never by the shared `modules/dev` list. Each host
+adds ONLY its browser backend, declared once through
+`hermesCurated.browserProxyUnit` (that one value drives the gateway's
+`After=`, its `BROWSER_CDP_URL`, and the `browser.cdp_url` in the curated
+config seed): `wsl` -> `browser-proxy-windows.nix` (`browser-proxy-windows.service`)
+plus `hermesAgent.cuaDriver = true`; `laptop` -> `browser-proxy-linux.nix`
+(`hermes-browser-proxy.service`, host `google-chrome-stable`); `server` ->
+neither, so it seeds no browser endpoint at all and `browse`/`web-login`/
+`operate-desktop` are inert there by design. Keep host-specific modules
+(`browser-proxy-*`, `joy-brain`, `hermes-alps-services`,
+`hermes-browser-tools`, `cuaDriver`) OUT of `hermes-curated.nix`; the alps
+`hermes` profile imports `hermes-agent.nix` directly with
+`standaloneDeps = true` and must keep working untouched.
+
+Credentials stay local and identical to wsl's: the provider key is
+`~/.hermes/.env`, written by the captain, never by activation, and no agenix
+secret exists for it. Activation is re-run safe by construction - the only
+config writes are the seed-if-absent `config.yaml` plus the keyed yq merge, so
+`~/.hermes/{auth.json,.env,kanban.db,sessions,memories,cron}` are never
+clobbered.
+
+`modules/dev/hermes-agent.nix` and `modules/dev/hermes-home.nix` install the
+agent and materialize a generic, self-contained Hermes home - no private clone
+and no SSH to `alps`. Full rationale + the curated skill subset + the
+not-vendored list live in README "Hermes agent (every login-user host)"; the
+sharp edges worth knowing here:
 
 - Hermes is a pinned `uv sync --extra all --locked --python 3.11` of
   `github:NousResearch/hermes-agent` at tag `v2026.8.31` (revision
@@ -481,7 +507,7 @@ worth knowing here:
   that wants to delegate to Hermes over MCP wires up that entry itself
   (`<harness> mcp add hermes -- hermes mcp serve` or equivalent).
 
-## Hermes orchestrator + domain-expert fleet (wsl)
+## Hermes orchestrator + domain-expert fleet (login-user hosts)
 
 The default profile is the captain-facing ORCHESTRATOR; each domain expert is a
 runtime-created Hermes profile. Authoritative design (read before changing any
@@ -547,7 +573,7 @@ approved all ten calls 2026-09-09). What the code shows plus the sharp edges:
   base skills read-only via `skills.external_dirs`; a rebuilt host or deleted
   profile loses runtime-created experts and their learned skills.
 
-## Hermes fleet guardrails (wsl host)
+## Hermes fleet guardrails (login-user hosts)
 
 Added after the 2026-09-10 live incident (the `photo-book-curator` expert ground
 ~44 min driving the captain's live Lightroom, 25 window raises, no interim
@@ -605,7 +631,7 @@ profile never loaded it. `modules/dev/hermes-guardrails.nix` (imported only by
 - **The alps full brain is unaffected** - `joy-brain.nix` keeps its own
   SOUL/skills and does not import the guardrails module.
 
-## Hermes pass-enforcement plugin (wsl host)
+## Hermes pass-enforcement plugin (login-user hosts)
 
 `modules/dev/hermes-plugins.nix` (imported only by
 `hosts/wsl/configuration.nix`) vendors native Hermes plugins under

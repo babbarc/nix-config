@@ -185,7 +185,7 @@ in
     # cua-driver-bootstrap.ps1) as a Hermes MCP server at activation, so the
     # Hermes agent here can operate the Windows desktop over powershell.exe
     # interop. See modules/dev/hermes-agent.nix and README "Hermes desktop
-    # control (Cua driver)".
+    # control (Cua driver)". This is the one WSL-only piece of the Hermes set.
     hermesAgent.cuaDriver = true;
 
     imports = [
@@ -193,42 +193,24 @@ in
       # Windows-Chrome CDP proxy (WSL-only): a plain systemd --user service
       # that runs containers/systemd/browser-proxy-windows.py directly and
       # exposes localhost:3333 for a Hermes agent. See
-      # modules/dev/browser-proxy-windows.nix.
+      # modules/dev/browser-proxy-windows.nix. The unit itself is WSL-only; the
+      # shared Hermes set below is told about it via
+      # hermesCurated.browserProxyUnit.
       ../../modules/dev/browser-proxy-windows.nix
-      # Hermes agent (wsl-only): the pinned uv-installed engine plus the
-      # curated, self-contained Hermes home. Both need WSL interop / localhost
-      # CDP proxy, so they are deliberately NOT in the shared modules/dev list
-      # the laptop/server hosts import. See modules/dev/hermes-agent.nix and
-      # modules/dev/hermes-home.nix. The alps full brain keeps
-      # modules/dev/joy-brain.nix; the wsl path does not import it.
-      ../../modules/dev/hermes-agent.nix
-      # Fleet guardrails (wsl-only): the single source of truth for the
-      # live-app / run-budget / heartbeat / loop-bound tunables, the rendered
-      # SOULs + shared skills, the ~/.hermes/guardrails.yaml, and the
-      # hermes-guardrails / hermes-desktop-lock CLIs. Imported before
-      # hermes-home.nix, which consumes its rendered artifacts. See
-      # modules/dev/hermes-guardrails.nix.
-      ../../modules/dev/hermes-guardrails.nix
-      ../../modules/dev/hermes-home.nix
-      # Purpose-built, AXI-shaped Hermes skill set (browse / web-login /
-      # pass-access / operate-desktop / recover-blocked-page / delegated-task),
-      # vendored in this repo and symlinked into ~/.hermes/skills/. wsl-only.
-      # See modules/dev/hermes-skills.nix.
-      ../../modules/dev/hermes-skills.nix
-      # Repo-vendored native Hermes plugins (wsl-only): the pass-enforcement
-      # pre_tool_call hook that structurally blocks `pass show <path>` / bare
-      # `pass <path>` in the terminal toolset - defense-in-depth for the
-      # pass-access / web-login secret-hygiene design. See
-      # modules/dev/hermes-plugins.nix.
-      ../../modules/dev/hermes-plugins.nix
-      # hermes-expert-new (wsl-only): the deterministic domain-expert profile
-      # provisioning helper the orchestrator runs when a task lands in a new
-      # domain. See modules/dev/hermes-expert-new.nix.
-      ../../modules/dev/hermes-expert-new.nix
-      # Hermes gateway (wsl-only): the systemd --user unit that hosts the
-      # kanban dispatcher, so a fleet of expert profiles can actually drain
-      # the board. See modules/dev/hermes-gateway.nix.
-      ../../modules/dev/hermes-gateway.nix
+      # The full login-user Hermes set - engine, curated ~/.hermes, guardrails,
+      # vendored skills + plugins, hermes-expert-new, and the hermes-gateway
+      # unit hosting the kanban dispatcher. Shared with the laptop and server
+      # hosts (it is deliberately NOT in the shared modules/dev list, since
+      # those hosts each pick their own browser backend - or none). See
+      # modules/dev/hermes-curated.nix for the portability matrix. The alps
+      # full brain keeps modules/dev/joy-brain.nix; it is a separate
+      # machine-level deployment and imports none of this.
+      ../../modules/dev/hermes-curated.nix
     ];
+
+    # This host's browser backend: the Windows-Chrome proxy imported above. It
+    # orders hermes-gateway after it and exports BROWSER_CDP_URL + seeds
+    # browser.cdp_url in ~/.hermes/config.yaml (all http://localhost:3333).
+    hermesCurated.browserProxyUnit = "browser-proxy-windows.service";
   };
 }

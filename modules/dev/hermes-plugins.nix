@@ -2,9 +2,9 @@
 let
   hermesHome = "${config.home.homeDirectory}/.hermes";
 
-  # Repo-vendored native Hermes plugins for the curated (wsl) instance,
-  # restored on every rebuild - same posture as modules/dev/hermes-skills.nix
-  # and modules/dev/hermes-soul.md.
+  # Repo-vendored native Hermes plugins for the curated instance (every host
+  # importing modules/dev/hermes-curated.nix), restored on every rebuild - same
+  # posture as modules/dev/hermes-skills.nix and modules/dev/hermes-soul.md.
   #
   # pass-enforcement: a `pre_tool_call` hook that structurally blocks the
   # secret-dumping `pass` forms (`pass show <path>` and a bare `pass <path>`,
