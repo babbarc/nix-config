@@ -243,6 +243,9 @@ HERMES_PROFILE_USER="hermes"
 # Resolved by `update` (and by verify when running from a checkout); empty on
 # an install that fetched a tarball.
 CHECKOUT=""
+# Flake ref recorded by set_role_plan - the only thing build_and_activate logs
+# from, so neither lifecycle can read a variable the other one never set.
+PLAN_FLAKE=""
 
 # ask <prompt> <default>: prints the prompt (with "[default]: " when a
 # default exists) on stderr and echoes the answer on stdout. Empty input takes
@@ -343,11 +346,15 @@ load_env() {
   fi
 }
 
-# set_role_plan <flake-ref>: fill ATTR, BUILD_CMD, ACTIVATE, HOST_LABEL and
-# SET_SYSTEM_PROFILE for $ROLE. `flake-ref` is what nix is pointed at (a
-# tarball URL, path:<checkout>, or the global BUILD_FLAKE on install).
+# set_role_plan <flake-ref>: fill PLAN_FLAKE, ATTR, BUILD_CMD, ACTIVATE,
+# HOST_LABEL and SET_SYSTEM_PROFILE for $ROLE. `flake-ref` is what nix is
+# pointed at (a tarball URL or path:<checkout> - install picks it from the
+# repo source, update from its resolved checkout) and is recorded HERE, not in
+# the install path, so the shared build_and_activate logs the same ref on both
+# lifecycles. `local flake` is still used below for the hermes activation.
 set_role_plan() {
   local flake="$1"
+  PLAN_FLAKE="$flake"
   SET_SYSTEM_PROFILE=0
   ATTR=""
   BUILD_CMD=()
@@ -480,7 +487,7 @@ build_and_activate() {
   cd "$HOME"
   if [ "${#BUILD_CMD[@]}" -gt 0 ]; then
     log "Build"
-    info "building $HOST_LABEL from $BUILD_FLAKE"
+    info "building $HOST_LABEL from $PLAN_FLAKE"
     info "  (first run downloads nixpkgs + home-manager - a few hundred MB and a few minutes; later runs are fast)"
     info "running: ${BUILD_CMD[*]}"
     retry "${BUILD_CMD[@]}"
@@ -1313,6 +1320,9 @@ if [ "$ROLE" = wsl ]; then
   else
     win_user=""
     if command -v powershell.exe >/dev/null 2>&1; then
+      # SC2016: '$env:USERNAME' is PowerShell syntax, intentionally single-quoted
+      # so the shell passes it through unchanged.
+      # shellcheck disable=SC2016
       win_user="$(powershell.exe -NoProfile -NonInteractive -Command '$env:USERNAME' 2>/dev/null | tr -d '\r' | head -n 1 || true)"
     fi
     if [ -z "$win_user" ] && command -v cmd.exe >/dev/null 2>&1; then

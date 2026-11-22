@@ -32,6 +32,15 @@ nix build .#nixosConfigurations.wsl.config.system.build.toplevel --no-link
 nix flake check .
 ```
 
+`setup.sh` lifecycle changes also have a hermetic end-to-end gate:
+`bash tests/setup-shim-test.sh` runs the REAL `install`/`update` flows (not
+`--dry-run`) in a throwaway `HOME`/checkout with no-op PATH shims for every
+side-effecting command, asserting argv, call order and a byte-identical env
+file. A dry-run returns before `build_and_activate` runs, so it cannot catch a
+variable only one lifecycle assigns - that class of bug once killed a real
+update run. Keep that harness green; its header documents the cases and the
+isolation guarantees.
+
 Flakes only see git-tracked files - `git add` (even just `-N` to stage-track a new
 file) before any of the above, or evaluation fails with "not tracked by Git" on
 anything newly created.
