@@ -77,6 +77,11 @@ in
     # Anything else - missing, dangling, a plain file, a store path - is not
     # a managed install: (re)install it. On a healthy host this costs a few
     # readlinks and no network call.
+    #
+    # This guard is the single source of truth for "what is a managed pi
+    # install?": setup.sh's verify_readiness() mirrors it (same two layouts,
+    # same store/dangling/plain-file rejections) as pi_managed_install_ok() -
+    # keep the two in lockstep when either layout changes.
     pi_agent_dir="$HOME/.pi/agent"
     pi_entrypoint="$HOME/.local/bin/pi"
     pi_managed_install_ok() {
