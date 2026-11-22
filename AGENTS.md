@@ -27,6 +27,7 @@ agent session (that's real system activation, out of scope for automated work he
 ```
 nix build .#homeConfigurations.laptop.activationPackage --no-link
 nix build .#homeConfigurations.server.activationPackage --no-link
+nix build .#homeConfigurations.hermes.activationPackage --no-link
 nix build .#nixosConfigurations.wsl.config.system.build.toplevel --no-link
 nix flake check .
 ```
@@ -34,6 +35,43 @@ nix flake check .
 Flakes only see git-tracked files - `git add` (even just `-N` to stage-track a new
 file) before any of the above, or evaluation fails with "not tracked by Git" on
 anything newly created.
+
+## Install vs update lifecycle
+
+One entry point, two lifecycles: `./setup.sh` is the interactive install, run
+once per machine, and `./setup.sh update` is the non-interactive update, run
+as often as needed. Both build and activate with the same
+`set_role_plan`/`build_and_activate` helpers, so there is no per-host update
+path to keep in sync. Install owns everything that must happen exactly once:
+the role prompts, writing `~/.config/dotfiles/env` (and its rewrite/drop-keys
+semantics), and the pass-store prompt. Update never prompts and never writes
+the env file (it refuses when the file is missing - that means install never
+ran). It pulls the checkout with `git pull --ff-only` (`nix flake update`
+only with `--bump`), builds/activates with the identical command, re-applies
+chezmoi with the identical `init --apply --force --no-tty --purge`
+invocation, then refreshes the self-updating runtimes (pi, hermes, herdr, npm
+axi suite, firstmate via `fm-update.sh`) unless `--skip-runtime`, and finishes
+with the readiness report.
+
+Guard rule for future modules: a bootstrap step is either install-time-only or
+absence-guarded in activation, and it never re-runs on a plain switch. That is
+what keeps `update` safe to repeat - the pi, firstmate, herdr and hermes
+installs are guarded activations, so a switch on a provisioned host stays a
+local no-op, and re-running an installer is not how drift gets fixed (the
+verify phase reports it instead). `--role hermes` is the fourth target: a
+standalone `nix run home-manager -- switch -b hm-bak --flake
+<checkout>#hermes` with no env file, no chezmoi and no runtime refresh,
+because that profile must not touch the hermes user's hand-managed dotfiles.
+That profile fixes `home.username`/`home.homeDirectory` to the `hermes`
+account, so setup.sh refuses the role as any other user and operates only on
+that user's own checkout: `sudo -iu hermes --
+/home/hermes/.nix-config/setup.sh update --role hermes`.
+
+The verify phase is shared and report-only (PASS/FAIL/SKIP, never fails the
+run); it is the thing that surfaces a stale checkout, a nix-store `pi`, or a
+missing per-role env key instead of leaving them silent. Design rationale and
+the evidence for each phase: `data/nix-unified-system-design/report.md` in
+the firstmate repo, sections 3, 4 and 6.
 
 ## Chezmoi cutover: this repo now matches dotfiles' real, landed state
 
