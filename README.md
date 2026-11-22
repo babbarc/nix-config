@@ -143,9 +143,16 @@ fast-forwards its tracked files only and never touches `data/`, `state/`,
 `--role hermes` targets the joy host's standalone `homeConfigurations.hermes`
 profile (`nix run home-manager -- switch -b hm-bak --flake <checkout>#hermes`;
 `-b` is required on first activation because the joy-stack `.container` files
-already exist). It deliberately has no env file, no chezmoi apply, and no
-runtime refresh - that profile must not touch the hermes user's hand-managed
-dotfiles.
+already exist). That profile pins `home.username`/`home.homeDirectory` to the
+`hermes` account, so this role must be run as that account from its own
+checkout - setup.sh refuses any other user before doing anything:
+
+```sh
+sudo -iu hermes -- /home/hermes/.nix-config/setup.sh update --role hermes
+```
+
+It deliberately has no env file, no chezmoi apply, and no runtime refresh -
+that profile must not touch the hermes user's hand-managed dotfiles.
 
 Both lifecycles end with the same readiness report: checkout HEAD vs its
 upstream, `pi` resolving into `~/.pi/agent/install/` rather than the nix

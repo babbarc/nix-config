@@ -29,7 +29,9 @@
 #        (homeConfigurations.server) + env HOME_MANAGER_BACKUP_EXT=backup
 #        ./result/activate
 #      - hermes: nix run home-manager -- switch -b hm-bak --flake
-#        <checkout>#hermes, as the hermes user itself (that profile must not
+#        <checkout>#hermes, run AS the hermes user from that user's own
+#        checkout (homeConfigurations.hermes manages /home/hermes, so this
+#        role refuses to run as any other account; that profile must not
 #        touch the hermes user's hand-managed dotfiles, so no chezmoi)
 #      then (except for `hermes`) applies the sibling `dotfiles` repo's
 #      chezmoi-managed dotfile content (nvim, lazygit, herdr, fish functions,
@@ -50,7 +52,7 @@
 # It never prompts and never writes ~/.config/dotfiles/env - a missing env
 # file means install never ran, and update refuses instead of inventing one.
 # `-b hm-bak`/`--role hermes` is the joy-host profile: no chezmoi, no runtime
-# refresh, no env file.
+# refresh, no env file, and it is invoked only as the hermes account itself.
 #
 # Role detection: distro NixOS (os-release ID=nixos) -> wsl; hostname "laptop"
 # -> laptop; login user "hermes" -> hermes; otherwise prompted (laptop/server/
@@ -110,7 +112,8 @@ hermes).
                  Never prompts and never rewrites the env file.
 
   --role <role>  force the host role (default: detect from the environment,
-                 then prompt on install; on update detection must succeed)
+                 then prompt on install; on update detection must succeed).
+                 `hermes` only works when run as the hermes account itself.
   --dry-run      print every command that would run - change nothing
   --bump         (update) also run `nix flake update` in the checkout
   --allow-dirty  (update) proceed despite uncommitted tracked changes
@@ -231,6 +234,12 @@ CA_BUNDLE_FILE="${SETUP_CA_BUNDLE_FILE:-$HOME/.config/dotfiles/bootstrap-ca.crt}
 # below), which clones, applies, and purges its own source directory in a
 # single command - no persistent local checkout is left on the host.
 DOTFILES_REPO_URL="https://github.com/babbarc/dotfiles.git"
+# The `hermes` role targets `homeConfigurations.hermes`, a standalone profile
+# that fixes home.username = "hermes" and home.homeDirectory = /home/hermes
+# (hosts/hermes/home.nix). Standalone home-manager activates a profile as the
+# invoking user and writes that user's home, so this role can only be applied
+# by this account - see the guard in the environment section below.
+HERMES_PROFILE_USER="hermes"
 # Resolved by `update` (and by verify when running from a checkout); empty on
 # an install that fetched a tarball.
 CHECKOUT=""
@@ -375,8 +384,11 @@ set_role_plan() {
       # Standalone home-manager activated by the home-manager CLI itself - no
       # ./result profile step. `-b hm-bak` is required on the first activation
       # because the joy-stack .container files already exist as plain files.
+      # The environment-section guard already refused any invoking user other
+      # than HERMES_PROFILE_USER, so this always applies /home/hermes as its
+      # own account.
       ACTIVATE=(nix run home-manager -- switch -b hm-bak --flake "$flake#hermes")
-      HOST_LABEL="home-manager profile as $(id -un) (homeConfigurations.hermes)"
+      HOST_LABEL="home-manager profile for the $HERMES_PROFILE_USER account (homeConfigurations.hermes)"
       ;;
   esac
 
@@ -854,12 +866,26 @@ update_main() {
 
   # Checkout: the checkout this script runs from, else the standard install
   # target. Update only ever pulls an existing checkout; it never clones.
+  # The `hermes` role additionally requires the checkout to be the hermes
+  # user's own (under its home), so update never runs inside another user's
+  # checkout - the environment guard already established we ARE that user.
   if repo_present_at "$REPO" && is_git_checkout "$REPO"; then
     CHECKOUT="$REPO"
   elif repo_present_at "$HOME/.nix-config" && is_git_checkout "$HOME/.nix-config"; then
     CHECKOUT="$HOME/.nix-config"
   else
+    if [ "$ROLE" = hermes ]; then
+      die "role hermes needs the $HERMES_PROFILE_USER user's own checkout (looked at '$REPO' and '$HOME/.nix-config') - clone it as that user: git clone https://github.com/babbarc/nix-config.git $HOME/.nix-config"
+    fi
     die "no nix-config git checkout found (looked at '$REPO' and '$HOME/.nix-config') - run update from a checkout, or install first (install clones it)"
+  fi
+  if [ "$ROLE" = hermes ]; then
+    case "$CHECKOUT" in
+      "$HOME"/*) : ;;
+      *)
+        die "role hermes must use the $HERMES_PROFILE_USER user's own checkout, but resolved '$CHECKOUT' (outside $HOME) - run '$HOME/.nix-config/setup.sh update --role hermes' instead"
+        ;;
+    esac
   fi
   info "checkout: $CHECKOUT"
 
@@ -1040,6 +1066,18 @@ if [ -z "$ROLE" ]; then
   fi
 else
   info "role: $ROLE (forced)"
+fi
+
+# The `hermes` role can only be applied by the hermes account itself:
+# homeConfigurations.hermes fixes home.username/home.homeDirectory to that
+# user, and standalone home-manager activates a profile as the invoking user
+# and writes that user's home. Refuse before any prompt, pull, build or write,
+# and name the exact re-run command - never build a plan that claims to apply
+# /home/hermes "as" somebody else.
+if [ "$ROLE" = hermes ] && [ "$(id -un)" != "$HERMES_PROFILE_USER" ]; then
+  die "role hermes activates homeConfigurations.hermes, which manages /home/$HERMES_PROFILE_USER as the '$HERMES_PROFILE_USER' account - it cannot be applied by '$(id -un)'.
+Run it as that account, from the $HERMES_PROFILE_USER user's own checkout, e.g.:
+  sudo -iu $HERMES_PROFILE_USER -- /home/$HERMES_PROFILE_USER/.nix-config/setup.sh $MODE --role hermes"
 fi
 
 if ! command -v nix >/dev/null 2>&1; then

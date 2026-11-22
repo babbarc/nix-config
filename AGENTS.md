@@ -61,12 +61,17 @@ local no-op, and re-running an installer is not how drift gets fixed (the
 verify phase reports it instead). `--role hermes` is the fourth target: a
 standalone `nix run home-manager -- switch -b hm-bak --flake
 <checkout>#hermes` with no env file, no chezmoi and no runtime refresh,
-because that profile must not touch the hermes user's hand-managed dotfiles. The verify phase is shared
-and report-only (PASS/FAIL/SKIP, never fails the run); it is the thing that
-surfaces a stale checkout, a nix-store `pi`, or a missing per-role env key
-instead of leaving them silent. Design rationale and the evidence for each
-phase: `data/nix-unified-system-design/report.md` in the firstmate repo,
-sections 3, 4 and 6.
+because that profile must not touch the hermes user's hand-managed dotfiles.
+That profile fixes `home.username`/`home.homeDirectory` to the `hermes`
+account, so setup.sh refuses the role as any other user and operates only on
+that user's own checkout: `sudo -iu hermes --
+/home/hermes/.nix-config/setup.sh update --role hermes`.
+
+The verify phase is shared and report-only (PASS/FAIL/SKIP, never fails the
+run); it is the thing that surfaces a stale checkout, a nix-store `pi`, or a
+missing per-role env key instead of leaving them silent. Design rationale and
+the evidence for each phase: `data/nix-unified-system-design/report.md` in
+the firstmate repo, sections 3, 4 and 6.
 
 ## Chezmoi cutover: this repo now matches dotfiles' real, landed state
 
