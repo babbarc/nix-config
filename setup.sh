@@ -614,6 +614,35 @@ refresh_runtimes() {
   fi
 }
 
+# pi_managed_install_ok <resolved-path>: true only for the two layouts the
+# official pi installer writes and modules/dev/pi.nix's pi_managed_install_ok()
+# accepts (the install-time guard and the single source of truth this mirrors -
+# keep the two in lockstep):
+#   - entry point -> ~/.pi/agent/install/releases/<version> (a release build,
+#     resolved directly), or
+#   - entry point -> ~/.pi/agent/bin/pi (the launcher), whose
+#     install/current-version names a release that really contains an
+#     executable node_modules/.bin/pi.
+pi_managed_install_ok() {
+  local real="${1:-}" v
+  case "$real" in
+    "$HOME"/.pi/agent/install/releases/*)
+      [ -x "$real" ]
+      ;;
+    "$HOME"/.pi/agent/bin/pi)
+      [ -r "$HOME/.pi/agent/install/current-version" ] || return 1
+      IFS= read -r v < "$HOME/.pi/agent/install/current-version" || return 1
+      case "$v" in
+        "" | . | .. | *[!0-9A-Za-z._+-]*) return 1 ;;
+      esac
+      [ -x "$HOME/.pi/agent/install/releases/$v/node_modules/.bin/pi" ]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 # verify_readiness: shared by install and update. Reports pass/fail per item,
 # each FAIL naming the one command that fixes it. It never fails the run.
 verify_readiness() {
@@ -662,32 +691,33 @@ verify_readiness() {
     vskip "pi/firstmate/gh/gpg/pass: not part of the hermes profile"
   else
     # pi must be the managed (self-updating) install, never the old nix-store
-    # binary - the exact drift this entry point exists to prevent.
-    local pi_link="$HOME/.local/bin/pi" pi_target="" pi_path="" pi_resolved=""
-    [ -e "$pi_link" ] && pi_target="$(readlink -f "$pi_link" 2>/dev/null || true)"
+    # binary - the exact drift this entry point exists to prevent. The two
+    # accepted layouts live in pi_managed_install_ok() above and mirror the
+    # install-time guard of the same name in modules/dev/pi.nix.
+    local pi_link="$HOME/.local/bin/pi" pi_real="" pi_path="" pi_resolved=""
+    [ -e "$pi_link" ] && pi_real="$(readlink -f "$pi_link" 2>/dev/null || true)"
     pi_path="$(command -v pi 2>/dev/null || true)"
     [ -n "$pi_path" ] && pi_resolved="$(readlink -f "$pi_path" 2>/dev/null || true)"
-    case "$pi_target" in
-      "$HOME"/.pi/agent/install/*) vpass "pi: $pi_link -> managed install" ;;
-      *)
-        case "$pi_resolved" in
-          "$HOME"/.pi/agent/install/*) vpass "pi: $pi_path -> managed install" ;;
-          /nix/store/*)
-            vfail "pi: resolves into the nix store ($pi_resolved) - the managed install never ran (fix: run ./setup.sh (install) to re-run piInstall, then open a new shell)"
-            ;;
-          '')
-            if [ -n "$pi_target" ]; then
-              vfail "pi: $pi_link -> $pi_target, not a managed install (fix: rm -f $pi_link; run ./setup.sh (install) to re-run piInstall)"
-            else
-              vfail "pi: not installed (fix: run ./setup.sh (install) - piInstall bootstraps it)"
-            fi
-            ;;
-          *)
-            vfail "pi: $pi_path is not a managed install (fix: rm -f $pi_link; run ./setup.sh (install) to re-run piInstall)"
-            ;;
-        esac
-        ;;
-    esac
+    if pi_managed_install_ok "$pi_real"; then
+      vpass "pi: $pi_link -> managed install ($pi_real)"
+    elif pi_managed_install_ok "$pi_resolved"; then
+      vpass "pi: $pi_path -> managed install ($pi_resolved)"
+    else
+      local store_path=""
+      case "$pi_real" in /nix/store/*) store_path="$pi_real" ;; esac
+      case "$pi_resolved" in /nix/store/*) store_path="$pi_resolved" ;; esac
+      if [ -n "$store_path" ]; then
+        vfail "pi: resolves into the nix store ($store_path) - the managed install never ran (fix: run ./setup.sh (install) to re-run piInstall, then open a new shell)"
+      elif [ -L "$pi_link" ] && [ ! -e "$pi_link" ]; then
+        vfail "pi: $pi_link is a dangling symlink, not a managed install (fix: run ./setup.sh (install) to re-run piInstall)"
+      elif [ -f "$pi_link" ] && [ ! -L "$pi_link" ]; then
+        vfail "pi: $pi_link is a plain file, not a managed install (fix: run ./setup.sh (install) to re-run piInstall)"
+      elif [ ! -e "$pi_link" ] && [ ! -L "$pi_link" ]; then
+        vfail "pi: not installed (fix: run ./setup.sh (install) - piInstall bootstraps it)"
+      else
+        vfail "pi: $pi_link is not a managed install (fix: run ./setup.sh (install) to re-run piInstall)"
+      fi
+    fi
 
     local fm="$HOME/firstmate" fm_remote=""
     if [ ! -d "$fm" ]; then

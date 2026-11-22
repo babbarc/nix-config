@@ -35,6 +35,16 @@ BASE_PATH="$PATH"
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/setup-shim-test.XXXXXX")"
 KEEP="${KEEP:-0}"
 
+# A real nix-store binary to stand in for the OLD nix-store pi in the store
+# verify case. The harness never writes /nix/store: it only points a symlink
+# at an existing path so `readlink -f` resolves into /nix/store. Captured
+# from the pre-shim PATH; empty on a host with no nix store (that case skips).
+STORE_BIN="$(readlink -f "$(command -v nix)" 2>/dev/null || true)"
+case "$STORE_BIN" in
+  /nix/store/*) : ;;
+  *) STORE_BIN="" ;;
+esac
+
 FAILED=0
 CASE=""
 TBIN=""
@@ -221,17 +231,62 @@ start_case() {
   esac
 }
 
+# configure_pi <kind>: (re)build the pi entry point under $HOME for a verify
+# case. prepare_fake_home() installs the healthy `launcher` layout; each
+# verify case overrides it with the layout under test. Kinds:
+#   launcher - ~/.local/bin/pi -> ~/.pi/agent/bin/pi (executable launcher),
+#              install/current-version names a release with an executable
+#              node_modules/.bin/pi (the layout piInstall writes).
+#   release  - ~/.local/bin/pi -> ~/.pi/agent/install/releases/<version>/pi
+#              (a release build resolved directly).
+#   store    - no managed entry point; the PATH `pi` is a symlink to a real
+#              /nix/store binary (the old nix-store pi drift).
+#   dangling - ~/.local/bin/pi is a broken symlink.
+#   plain    - ~/.local/bin/pi is a plain executable file.
+configure_pi() {
+  local kind="$1"
+  rm -rf "$HOME/.pi/agent" "$HOME/.local/bin/pi"
+  mkdir -p "$HOME/.local/bin"
+  case "$kind" in
+    launcher)
+      mkdir -p "$HOME/.pi/agent/bin" \
+        "$HOME/.pi/agent/install/releases/1.6.0/node_modules/.bin"
+      printf '1.6.0\n' > "$HOME/.pi/agent/install/current-version"
+      cp "$TBIN/pi" "$HOME/.pi/agent/bin/pi"
+      cp "$TBIN/pi" "$HOME/.pi/agent/install/releases/1.6.0/node_modules/.bin/pi"
+      ln -s "$HOME/.pi/agent/bin/pi" "$HOME/.local/bin/pi"
+      ;;
+    release)
+      mkdir -p "$HOME/.pi/agent/install/releases/1.6.0"
+      cp "$TBIN/pi" "$HOME/.pi/agent/install/releases/1.6.0/pi"
+      ln -s "$HOME/.pi/agent/install/releases/1.6.0/pi" "$HOME/.local/bin/pi"
+      ;;
+    store)
+      ln -sf "$STORE_BIN" "$TBIN/pi"
+      ;;
+    dangling)
+      ln -s "$HOME/.pi/agent/install/releases/missing" "$HOME/.local/bin/pi"
+      ;;
+    plain)
+      cp "$TBIN/pi" "$HOME/.local/bin/pi"
+      ;;
+    *)
+      echo "internal error: unknown pi layout '$kind'" >&2
+      exit 1
+      ;;
+  esac
+}
+
 # A home that looks provisioned to refresh_runtimes()/verify_readiness(), so
 # the whole lifecycle runs its real branches instead of skipping them.
 prepare_fake_home() {
   mkdir -p "$HOME/.local/bin" "$HOME/.local/lib/node_modules/gh-axi" \
-    "$HOME/.local/lib/node_modules/chrome-devtools-axi" "$HOME/.pi/agent/install" \
+    "$HOME/.local/lib/node_modules/chrome-devtools-axi" \
     "$HOME/.local/share/hermes-agent/bin" "$HOME/firstmate/bin" "$HOME/firstmate/.git" \
     "$HOME/result" "$HOME/.password-store"
 
   # Managed pi install + its launcher symlink (the layout piInstall creates).
-  cp "$TBIN/pi" "$HOME/.pi/agent/install/pi"
-  ln -s "$HOME/.pi/agent/install/pi" "$HOME/.local/bin/pi"
+  configure_pi launcher
 
   # The pinned hermes venv layout hermesAgentInstall creates.
   cp "$TBIN/hermes" "$HOME/.local/share/hermes-agent/bin/hermes"
@@ -512,6 +567,39 @@ case_install_hermes() {
   assert_file_absent "$SETUP_ENV_FILE"
 }
 
+# verify_pi <name> <kind> <pass|fail> [needle]: run the real update
+# lifecycle (--skip-runtime so the verify phase is the focus) against a home
+# whose pi entry point is the given layout, and assert the readiness report's
+# pi: line. The two healthy layouts pass; every other layout fails, and the
+# store/dangling/plain failures assert their specific repair message.
+verify_pi() {
+  local name="$1" kind="$2" expect="$3" needle="${4:-}"
+  start_case "verify-pi-$name"
+  write_env_file wsl
+  configure_pi "$kind"
+  run_setup update --role wsl --skip-runtime
+  assert_rc 0
+  if [ "$expect" = pass ]; then
+    assert_out_has "PASS  pi:"
+    assert_out_lacks "FAIL  pi:"
+  else
+    assert_out_has "FAIL  pi:"
+    assert_out_has "$needle"
+  fi
+}
+
+case_verify_pi() {
+  verify_pi launcher launcher pass
+  verify_pi release release pass
+  verify_pi dangling dangling fail "dangling symlink"
+  verify_pi plain plain fail "plain file"
+  if [ -n "$STORE_BIN" ]; then
+    verify_pi store store fail "resolves into the nix store"
+  else
+    printf '\n=== case: verify-pi-store (skipped - no nix store on this host) ===\n'
+  fi
+}
+
 printf 'setup.sh shim test - sandbox: %s\n' "$ROOT"
 case_update_wsl
 case_update_wsl_dry_run
@@ -519,10 +607,11 @@ case_update_server
 case_update_hermes
 case_install_wsl
 case_install_hermes
+case_verify_pi
 
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then
-  echo "shim test: PASS (6 cases, nothing fetched/built/activated)"
+  echo "shim test: PASS (11 cases, nothing fetched/built/activated)"
   exit 0
 fi
 echo "shim test: FAIL ($FAILED assertion(s) failed)" >&2
