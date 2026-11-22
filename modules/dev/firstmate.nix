@@ -30,17 +30,37 @@
     FM_BACKEND = "herdr";
   };
 
-  # One-time bootstrap: clone firstmate on a fresh machine. Never touch the
-  # directory again once it exists — it holds the captain's own in-progress
-  # work, not something this module should ever overwrite or update.
+  # One-time bootstrap: clone firstmate on a fresh machine. Never touch an
+  # existing clone - it holds the captain's own in-progress work, not
+  # something this module should ever overwrite, stash, or update.
+  #
+  # The guard is the clone itself (a `.git` dir), not just the directory: a
+  # partial clone or a same-named non-git directory is repaired by cloning,
+  # where an `-d` guard would leave it broken forever. A clone that exists but
+  # points at a different upstream is only *reported* and left alone - this
+  # module never rewrites a remote, and only the canonical https URL counts as
+  # the expected upstream (an equivalent ssh-form clone therefore warns rather
+  # than being silently accepted).
   # `||`-guarded so a failed clone (no network) only warns on stderr instead
   # of failing the whole `home-manager switch`; see agent-cli-tools.nix for
   # the same posture applied to treehouse/no-mistakes/the axi suite.
   home.activation.firstmateClone = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     firstmate_dir="${config.home.homeDirectory}/firstmate"
-    if [ ! -d "$firstmate_dir" ]; then
-      $DRY_RUN_CMD ${pkgs.git}/bin/git clone https://github.com/babbarc/firstmate.git "$firstmate_dir" \
-        || echo "warning: could not clone firstmate into $firstmate_dir (offline?) - retry later with: git clone https://github.com/babbarc/firstmate.git $firstmate_dir" >&2
+    firstmate_url="https://github.com/babbarc/firstmate.git"
+    # Repo identity, not spelling: a trailing slash or ".git" is not a
+    # different upstream.
+    firstmate_expected="https://github.com/babbarc/firstmate"
+    if [ ! -d "$firstmate_dir/.git" ]; then
+      $DRY_RUN_CMD ${pkgs.git}/bin/git clone "$firstmate_url" "$firstmate_dir" \
+        || echo "warning: could not clone firstmate into $firstmate_dir (offline?) - retry later with: git clone $firstmate_url $firstmate_dir" >&2
+    else
+      firstmate_remote="$(${pkgs.git}/bin/git -C "$firstmate_dir" config --get remote.origin.url 2>/dev/null \
+        | ${pkgs.gnused}/bin/sed -e 's#/*$##' -e 's#\.git$##')"
+      if [ -z "$firstmate_remote" ]; then
+        echo "warning: $firstmate_dir exists but has no remote.origin.url - leaving it untouched (expected $firstmate_url)" >&2
+      elif [ "$firstmate_remote" != "$firstmate_expected" ]; then
+        echo "warning: $firstmate_dir is a clone of '$firstmate_remote', not $firstmate_url - leaving it untouched" >&2
+      fi
     fi
   '';
 
